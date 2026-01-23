@@ -1,0 +1,75 @@
+{
+  "bootstrapServers": "",
+
+  "telegramBotToken": "",
+  "telegramChatId": "",
+
+  "topics": [
+    {
+      "topic": "app1-topic",
+      "type": "LOG",
+      "output": "/data/logs/received_app1.log"
+    },
+    {
+      "topic": "app2-topic",
+      "type": "LOG",
+      "output": "/data/logs/received_app2.log"
+    },
+    {
+      "topic": "app3-topic",
+      "type": "LOG",
+      "output": "/data/logs/received_app3.log"
+    },
+    {
+      "topic": "app4-topic",
+      "type": "LOG",
+      "output": "/data/logs/received_app4.log"
+    },
+    {
+      "topic": "server-topic",
+      "type": "LOG",
+      "output": "/data/logs/received_server.log"
+    },
+    {
+      "topic": "system-topic",
+      "type": "LOG",
+      "output": "/data/logs/received_system.log"
+    },
+    {
+      "topic": "server-storage-snapshot",
+      "type": "METRIC",
+      "output": "/data/logs/received_system_resources_daily.json"
+    }
+  ],
+
+  "alertKeywords": [
+    "error",
+    "fail",
+    "failure",
+    "fatal",
+    "exception",
+    "timeout",
+    "server error",
+    "critical",
+    "warn",
+    "warning",
+    "panic",
+    "crash",
+    "500",
+    "404",
+    "503"
+  ],
+
+  "database": {
+    "url": "jdbc:mysql://localhost:3306/logDB",
+    "user": "",
+    "password": "",
+
+    "tables": {
+      "alertLogTable": "alert_logs",
+      "serverStorageSnapshotTable": "server_storage_snapshot",
+      "mountPathStorageUsageTable": "mount_path_storage_usage"
+    }
+  }
+
+}
