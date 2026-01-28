@@ -20,13 +20,13 @@ public final class ConfigPathResolver {
 
         // 2. Environment variable
         String envPath = System.getenv(envKey);
-        if (envPath != null && !envPath.isBlank()) {
+        if (envPath != null && !envPath.trim().isEmpty()) {
             return envPath;
         }
 
         // 3. JVM system property
         String sysPropPath = System.getProperty(sysPropKey);
-        if (sysPropPath != null && !sysPropPath.isBlank()) {
+        if (sysPropPath != null && !sysPropPath.trim().isEmpty()) {
             return sysPropPath;
         }
 
@@ -51,7 +51,7 @@ public final class ConfigPathResolver {
                 return args[i + 1];
             }
 
-            if (!arg.startsWith("-") && !arg.isBlank()) {
+            if (!arg.startsWith("-") && !arg.trim().isEmpty()) {
                 return arg;
             }
         }

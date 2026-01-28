@@ -10,6 +10,7 @@ import org.munycha.kafkaconsumer.db.MountPathStorageUsageDB;
 import org.munycha.kafkaconsumer.db.ServerStorageSnapshotDB;
 
 import java.nio.file.Path;
+import java.nio.file.Paths;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
 
@@ -49,7 +50,7 @@ public class AppMain {
                     config.getBootstrapServers(),
                     t.getTopic(),
                     t.getType(),
-                    Path.of(t.getOutput()),
+                    Paths.get(t.getOutput()),
                     config.getTelegramBotToken(),
                     config.getTelegramChatId(),
                     config.getAlertKeywords(),
