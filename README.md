@@ -1,285 +1,298 @@
 
 ---
 
-# 🪵 Kafka Log Consumer
+````md
+# log-processor
 
-### Multi-Topic Processing • Telegram Alerts • MySQL Logging • Topic Validation
+**log-processor** is a **Java 8–compatible Kafka log processing application** that consumes log and metric data from **Apache Kafka** and processes it for storage, alerting, and analysis.
 
-This application consumes multiple Kafka topics in real time, writes their messages to log files, sends Telegram alerts when important keywords appear, stores alert records in MySQL, **and validates Kafka topics at startup**.
-
-Every topic is handled in its own thread for fast, parallel log processing.
-
----
-
-# ⚙️ How It Works
-
-1. The application loads **all settings from `config.json`**:
-
-   * Kafka bootstrap servers
-   * Telegram bot token & chat ID
-   * List of topics + output log file paths
-   * Alert keywords
-   * MySQL connection settings
-
-2. **KafkaTopicValidator** checks if all configured topics exist.
-
-   * If any topic is missing → ❌ program stops
-   * Protects from silent failures
-
-3. For each topic:
-
-   * A Kafka consumer is created using **KafkaConsumerFactory**
-   * A new thread is started (`TopicConsumer`)
-   * Each received message is:
-
-      * Written to a log file
-      * Checked for alert keywords
-      * If keyword found:
-
-         * 📢 Telegram alert sent
-         * 🗄 Record saved to MySQL
-
-4. Everything is configurable.
-   **No Java code changes needed** to add or remove topics, keywords, or alerts.
+It provides:
+- Continuous consumption of log and metric messages from Kafka topics
+- File-based persistence of logs and metrics
+- Keyword-based alert detection
+- Alert notifications via Telegram
+- Persistence of alerts and metrics to MySQL
 
 ---
 
-# 📁 Configuration Files
+## Requirements
 
-## ✔ `config.example.json` (included in Git)
+- **Java:** 1.8 (Java 8)
+- **Build tool:** Maven 3.6+
+- **Kafka:** Reachable Kafka broker
+- **Database:** MySQL 5.7+ / 8.x
+- **OS:** Linux (paths and filesystem layout are Linux-oriented)
 
-```json
-{
-   "bootstrapServers": "YOUR_KAFKA_BOOTSTRAP_SERVER",
-
-   "telegramBotToken": "YOUR_TELEGRAM_BOT_TOKEN",
-   "telegramChatId": "YOUR_TELEGRAM_CHAT_ID",
-
-   "topics": [
-      { "topic": "app1-topic", "output": "/path/to/logs/received_app1.log" },
-      { "topic": "app2-topic", "output": "/path/to/logs/received_app2.log" },
-      { "topic": "app3-topic", "output": "/path/to/logs/received_app3.log" },
-      { "topic": "app4-topic", "output": "/path/to/logs/received_app4.log" },
-      { "topic": "system-topic", "output": "/path/to/logs/received_system.log" },
-      { "topic": "server-topic", "output": "/path/to/logs/received_server.log" }
-   ],
-
-   "alertKeywords": [
-      "error",
-      "fail",
-      "failure",
-      "fatal",
-      "exception",
-      "timeout",
-      "server error",
-      "critical",
-      "warn",
-      "warning",
-      "panic",
-      "crash",
-      "500",
-      "404",
-      "503"
-   ],
-
-   "database": {
-      "url": "jdbc:mysql://YOUR_DB_HOST:3306/YOUR_DATABASE_NAME",
-      "user": "YOUR_DATABASE_USER",
-      "password": "YOUR_DATABASE_PASSWORD",
-      "table": "alert_logs"
-   }
-}
-```
-
-### Copy and customize:
-
-```
-cp src/main/resources/config.example.json src/main/resources/config.json
-```
-
-Modify:
-
-* Kafka server
-* Telegram token & chat ID
-* Topic/output paths
-* Alert keywords
-* DB credentials
-
-### ❗ `config.json` is ignored by Git
-
-Sensitive credentials remain private.
+Verify Java:
+```bash
+java -version
+````
 
 ---
 
-# 🔔 Extensible Alert Keywords
+## Build
 
-Alert words are configured through `config.json`.
-
-Example:
-
-```json
-"alertKeywords": [
-  "error",
-  "panic",
-  "service unavailable",
-  "memory leak",
-  "disconnect",
-  "unauthorized"
-]
-```
-
-Add or remove keywords anytime → restart app → done.
-
----
-
-# 🗄 MySQL Alert Logging
-
-When a message matches a keyword, it's saved into `alert_logs`.
-
-### Table schema:
-
-```sql
-CREATE TABLE alert_logs (
-    id BIGINT AUTO_INCREMENT PRIMARY KEY,
-    topic VARCHAR(255) NOT NULL,
-    timestamp DATETIME NOT NULL,
-    message TEXT NOT NULL
-);
-```
-
-Stored fields:
-
-| Column      | Description                   |
-| ----------- | ----------------------------- |
-| `topic`     | Kafka topic name              |
-| `timestamp` | Time the message was consumed |
-| `message`   | Content of the log message    |
-
----
-
-# ▶️ Get Your Telegram Chat ID
-
-1. Open Telegram
-2. Search for: **@userinfobot**
-3. Start the bot
-4. Copy the value of "Your chat ID"
-5. Paste into `config.json`
-
----
-
-# 🧰 Requirements
-
-* Java **17+**
-* Apache Kafka running
-* MySQL server running
-* Internet access (Telegram API)
-* Kafka topics created (validated before startup)
-
----
-
-# ▶️ Run Instructions
-
-### 1. Build JAR
-
-```
+```bash
 mvn clean package
 ```
 
-### 2. Run application
+### Output
 
-```
-java -jar target/kafkaConsumerApp-1.0.jar
-```
-
-Expected output:
-
-```
-Listening to app1-topic -> writing to /home/.../received_app1.log
-[12:34:56] (app1-topic) ERROR Something bad happened
-
+```text
+target/log-processor.jar
 ```
 
 ---
 
-# 📝 Logging Configuration (`simplelogger.properties`)
+## Run
 
-Located in:
-
-```
-src/main/resources/simplelogger.properties
+```bash
+java -jar /path/to/log-processor.jar --config=/path/to/config/config.json
 ```
 
-Controls SLF4J logging:
+### Example
 
-```
-org.slf4j.simpleLogger.defaultLogLevel=warn
-org.slf4j.simpleLogger.log.org.apache.kafka=error
+```bash
+java -jar target/log-processor.jar --config=./config/config.json
 ```
 
-Helps suppress noisy Kafka internals and keeps console clean.
+> The application requires an external JSON configuration file.
 
 ---
 
-# 📂 Project Structure
+## Configuration Overview
+
+The application is configured using **one JSON file**.
+
+### Example: `config.json`
+
+```json
+{
+  "bootstrapServers": "localhost:9092",
+
+  "telegramBotToken": "<BOT_TOKEN>",
+  "telegramChatId": "<CHAT_ID>",
+
+  "topics": [
+    {
+      "topic": "app1-topic",
+      "type": "LOG",
+      "output": "/data/logs/received_app1.log"
+    },
+    {
+      "topic": "app2-topic",
+      "type": "LOG",
+      "output": "/data/logs/received_app2.log"
+    },
+    {
+      "topic": "app3-topic",
+      "type": "LOG",
+      "output": "/data/logs/received_app3.log"
+    },
+    {
+      "topic": "app4-topic",
+      "type": "LOG",
+      "output": "/data/logs/received_app4.log"
+    },
+    {
+      "topic": "server-topic",
+      "type": "LOG",
+      "output": "/data/logs/received_server.log"
+    },
+    {
+      "topic": "system-topic",
+      "type": "LOG",
+      "output": "/data/logs/received_system.log"
+    },
+    {
+      "topic": "server-storage-snapshot",
+      "type": "METRIC",
+      "output": "/data/logs/received_system_resources_daily.json"
+    }
+  ],
+
+  "alertKeywords": [
+    "error",
+    "fail",
+    "failure",
+    "fatal",
+    "exception",
+    "timeout",
+    "server error",
+    "critical",
+    "warn",
+    "warning",
+    "panic",
+    "crash",
+    "500",
+    "404",
+    "503"
+  ],
+
+  "database": {
+    "url": "jdbc:mysql://localhost:3306/logDB",
+    "user": "dbuser",
+    "password": "dbpassword",
+
+    "tables": {
+      "alertLogTable": "alert_logs",
+      "serverStorageSnapshotTable": "server_storage_snapshot",
+      "mountPathStorageUsageTable": "mount_path_storage_usage"
+    }
+  }
+}
+```
+
+---
+
+## Configuration Details
+
+### Kafka Connection
+
+```json
+"bootstrapServers": "localhost:9092"
+```
+
+* Kafka bootstrap server list
+* Used by all Kafka consumers in the application
+
+---
+
+### Topics
+
+Defines which Kafka topics are consumed and how messages are processed.
+
+Fields:
+
+* `topic`: Kafka topic name
+* `type`: Message type (`LOG` or `METRIC`)
+* `output`: Absolute path to the output file
+
+#### Supported Types
+
+* **LOG**
+
+   * Plain or structured log messages
+   * Scanned for alert keywords
+   * Written to `.log` files
+
+* **METRIC**
+
+   * Structured metric data
+   * Written as JSON
+   * Persisted to database tables
+
+---
+
+### Alert Keywords
+
+```json
+"alertKeywords": [ "error", "fatal", "exception" ]
+```
+
+* Keywords used to detect alert conditions in log messages
+* Matching is typically case-insensitive
+* When matched:
+
+   * An alert record is stored
+   * A Telegram notification is sent
+
+---
+
+### Telegram Alerts
+
+```json
+"telegramBotToken"
+"telegramChatId"
+```
+
+Used to send alert notifications when alert keywords are detected.
+
+---
+
+### Database Configuration
+
+```json
+"database": { ... }
+```
+
+The database is used to persist:
+
+* Alert logs
+* Server storage snapshots
+* Mount path storage usage metrics
+
+#### Tables
+
+| Purpose                  | Table Name                 |
+| ------------------------ | -------------------------- |
+| Alert logs               | `alert_logs`               |
+| Storage snapshot summary | `server_storage_snapshot`  |
+| Mount path storage usage | `mount_path_storage_usage` |
+
+---
+
+## Output Files
+
+All output paths must be **absolute paths**.
+
+Examples:
 
 ```
-src/
- └── main/
-     ├── java/
-     │   └── com/munycha/kafkaconsumer/
-     │       ├── AppMain.java                         # Entry point
-     │       ├── consumer/
-     │       │   ├── TopicConsumer.java               # Handles 1 topic in its own thread
-     │       │   └── KafkaConsumerFactory.java        # Creates KafkaConsumer instances
-     │       ├── utility/
-     │       │   └── KafkaTopicValidator.java         # Validates all topic names
-     │       ├── config/
-     │       │   ├── ConfigLoader.java                # Reads and parses config.json
-     │       │   ├── ConfigData.java                  # Full JSON configuration model
-     │       │   ├── TopicConfig.java                 # Topic + output path mapping
-     │       │   └── DatabaseConfig.java              # DB credentials + table
-     │       ├── telegram/
-     │       │   └── TelegramNotifier.java            # Sends alert messages w/ rate limiting
-     │       └── db/
-     │           └── AlertDatabase.java               # Handles DB inserts
-     └── resources/
-         ├── config.example.json
-         ├── config.json                              # User configuration (ignored by Git)
-         └── simplelogger.properties                  # NEW: SLF4J logger configuration
+/data/logs/received_app1.log
+/data/logs/received_system_resources_daily.json
 ```
 
----
-
-# 🧩 Class Overview (UPDATED)
-
-| Class                    | Purpose                                                                    |
-| ------------------------ | -------------------------------------------------------------------------- |
-| **AppMain**              | Loads config, validates topics, starts all TopicConsumers                  |
-| **TopicConsumer**        | Listens to a Kafka topic, writes logs, triggers alerts, inserts DB records |
-| **KafkaConsumerFactory** | NEW: Creates configured KafkaConsumer for each topic                       |
-| **KafkaTopicValidator**  | NEW: Ensures all topics exist before starting                              |
-| **ConfigLoader**         | Reads and parses config.json                                               |
-| **ConfigData**           | Full config: Kafka, Telegram, DB, topics, keywords                         |
-| **TopicConfig**          | Represents one topic → output mapping                                      |
-| **DatabaseConfig**       | Holds MySQL connection settings                                            |
-| **AlertDatabase**        | Inserts alert rows into MySQL                                              |
-| **TelegramNotifier**     | Sends Telegram alerts with rate limiting                                   |
+The application does not create directories automatically.
 
 ---
 
-# 💡 Tips
+## Java Compatibility
 
-* Add/remove Kafka topics instantly via `config.json`
-* Add or modify alert keywords anytime
-* Consumers run in parallel threads → high throughput
-* Pairs perfectly with your Kafka File Log Producer
-* Ideal for **real-time log monitoring + alerting**
+* Compiled with **Java 8**
+* Bytecode target: **Java 8**
+* Runs on Java 8 runtime without additional flags
 
 ---
 
-# 🧑‍💻 Author
+## Runtime Characteristics
 
-**Munycha**
-Real-time Kafka Log Consumer — Multi-Topic • Alerts • DB Storage • Topic Validation
+* Single JVM process
+* Long-running Kafka consumer
+* Console-based application
+* No HTTP endpoints
+* Designed to be stopped with `CTRL+C`
 
 ---
+
+## Notes
+
+* Kafka topics must exist or auto-creation must be enabled
+* Output directories must exist and be writable
+* Database must be reachable at startup
+* Secrets should not be committed to version control
+
+---
+
+## Typical Use Cases
+
+* Centralized Kafka log processing
+* Log-based alerting and monitoring
+* Persisting infrastructure metrics
+* Backend log analysis pipelines
+
+---
+
+## License
+
+Specify your license here (e.g. Internal, Proprietary, Apache 2.0).
+
+---
+
+## Maintainer
+
+* **Project:** log-processor
+* **Runtime:** Java 8
+* **Build:** Maven
+
+```
