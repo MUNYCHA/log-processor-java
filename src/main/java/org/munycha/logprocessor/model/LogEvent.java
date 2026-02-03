@@ -1,4 +1,4 @@
-package org.munycha.kafkaconsumer.model;
+package org.munycha.logprocessor.model;
 
 public class LogEvent {
 

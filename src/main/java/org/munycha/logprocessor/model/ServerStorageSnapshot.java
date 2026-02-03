@@ -1,4 +1,4 @@
-package org.munycha.kafkaconsumer.model;
+package org.munycha.logprocessor.model;
 
 import java.util.List;
 

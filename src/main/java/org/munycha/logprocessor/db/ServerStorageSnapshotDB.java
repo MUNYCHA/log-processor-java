@@ -1,7 +1,7 @@
-package org.munycha.kafkaconsumer.db;
+package org.munycha.logprocessor.db;
 
-import org.munycha.kafkaconsumer.config.DatabaseConfig;
-import org.munycha.kafkaconsumer.model.ServerStorageSnapshot;
+import org.munycha.logprocessor.config.DatabaseConfig;
+import org.munycha.logprocessor.model.ServerStorageSnapshot;
 
 import java.sql.*;
 import java.time.Instant;

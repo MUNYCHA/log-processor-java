@@ -1,15 +1,14 @@
-package org.munycha.kafkaconsumer;
+package org.munycha.logprocessor;
 
-import org.munycha.kafkaconsumer.config.AppConfig;
-import org.munycha.kafkaconsumer.config.ConfigLoader;
-import org.munycha.kafkaconsumer.config.ConfigPathResolver;
-import org.munycha.kafkaconsumer.config.TopicConfig;
-import org.munycha.kafkaconsumer.consumer.TopicConsumer;
-import org.munycha.kafkaconsumer.db.AlertDB;
-import org.munycha.kafkaconsumer.db.MountPathStorageUsageDB;
-import org.munycha.kafkaconsumer.db.ServerStorageSnapshotDB;
+import org.munycha.logprocessor.config.AppConfig;
+import org.munycha.logprocessor.config.ConfigLoader;
+import org.munycha.logprocessor.config.ConfigPathResolver;
+import org.munycha.logprocessor.config.TopicConfig;
+import org.munycha.logprocessor.consumer.TopicConsumer;
+import org.munycha.logprocessor.db.AlertDB;
+import org.munycha.logprocessor.db.MountPathStorageUsageDB;
+import org.munycha.logprocessor.db.ServerStorageSnapshotDB;
 
-import java.nio.file.Path;
 import java.nio.file.Paths;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;

@@ -26,7 +26,7 @@
             <configuration>
               <transformers>
                 <transformer>
-                  <mainClass>org.munycha.kafkaconsumer.AppMain</mainClass>
+                  <mainClass>org.munycha.logprocessor.AppMain</mainClass>
                 </transformer>
               </transformers>
             </configuration>

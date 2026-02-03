@@ -1,4 +1,4 @@
-package org.munycha.kafkaconsumer.config;
+package org.munycha.logprocessor.config;
 
 import com.fasterxml.jackson.databind.ObjectMapper;
 

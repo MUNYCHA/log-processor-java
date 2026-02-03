@@ -1,16 +1,16 @@
-package org.munycha.kafkaconsumer.consumer;
+package org.munycha.logprocessor.consumer;
 
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.fasterxml.jackson.databind.ObjectWriter;
 import org.apache.kafka.clients.consumer.*;
-import org.munycha.kafkaconsumer.config.TopicType;
-import org.munycha.kafkaconsumer.db.MountPathStorageUsageDB;
-import org.munycha.kafkaconsumer.db.ServerStorageSnapshotDB;
-import org.munycha.kafkaconsumer.model.LogEvent;
-import org.munycha.kafkaconsumer.model.MountPathStorageUsage;
-import org.munycha.kafkaconsumer.model.ServerStorageSnapshot;
-import org.munycha.kafkaconsumer.telegram.TelegramNotifier;
-import org.munycha.kafkaconsumer.db.AlertDB;
+import org.munycha.logprocessor.config.TopicType;
+import org.munycha.logprocessor.db.MountPathStorageUsageDB;
+import org.munycha.logprocessor.db.ServerStorageSnapshotDB;
+import org.munycha.logprocessor.model.LogEvent;
+import org.munycha.logprocessor.model.MountPathStorageUsage;
+import org.munycha.logprocessor.model.ServerStorageSnapshot;
+import org.munycha.logprocessor.telegram.TelegramNotifier;
+import org.munycha.logprocessor.db.AlertDB;
 
 
 import java.io.FileWriter;

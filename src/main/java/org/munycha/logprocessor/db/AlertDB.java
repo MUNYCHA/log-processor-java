@@ -1,6 +1,6 @@
-package org.munycha.kafkaconsumer.db;
+package org.munycha.logprocessor.db;
 
-import org.munycha.kafkaconsumer.config.DatabaseConfig;
+import org.munycha.logprocessor.config.DatabaseConfig;
 
 import java.sql.Connection;
 import java.sql.DriverManager;

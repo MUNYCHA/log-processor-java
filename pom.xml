@@ -6,7 +6,7 @@
     <modelVersion>4.0.0</modelVersion>
 
     <groupId>org.example</groupId>
-    <artifactId>kafkaConsumerApp</artifactId>
+    <artifactId>log-processor</artifactId>
     <version>1.0</version>
 
     <dependencies>
@@ -42,7 +42,7 @@
     </dependencies>
 
     <build>
-        <finalName>kafka-consumer</finalName>
+        <finalName>log-processor</finalName>
 
         <plugins>
 
@@ -73,7 +73,7 @@
                             <transformers>
                                 <transformer
                                         implementation="org.apache.maven.plugins.shade.resource.ManifestResourceTransformer">
-                                    <mainClass>org.munycha.kafkaconsumer.AppMain</mainClass>
+                                    <mainClass>org.munycha.logprocessor.AppMain</mainClass>
                                 </transformer>
                             </transformers>
                         </configuration>

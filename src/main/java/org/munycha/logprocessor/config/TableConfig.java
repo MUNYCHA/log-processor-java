@@ -1,4 +1,4 @@
-package org.munycha.kafkaconsumer.config;
+package org.munycha.logprocessor.config;
 
 public class TableConfig {
     private String alertLogTable;
