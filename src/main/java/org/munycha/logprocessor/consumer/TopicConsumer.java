@@ -155,21 +155,21 @@ public class TopicConsumer implements Runnable {
         ServerStorageSnapshot serverStorageSnapshot =
                 mapper.readValue(record.value(), ServerStorageSnapshot.class);
 
-        System.out.println("===== SERVER STORAGE SNAPSHOT RECEIVED =====");
-        System.out.println("Server   : " + serverStorageSnapshot.getServerName());
-        System.out.println("IP       : " + serverStorageSnapshot.getServerIp());
-        System.out.println("Timestamp: " + serverStorageSnapshot.getTimestamp());
-
-        for (MountPathStorageUsage spsu : serverStorageSnapshot.getMountPathStorageUsages()) {
-            System.out.printf(
-                    "Path: %-12s | Used: %6.2f%% | Used: %d / %d bytes%n",
-                    spsu.getPath(),
-                    spsu.getUsedPercent(),
-                    spsu.getUsedBytes(),
-                    spsu.getTotalBytes()
-            );
-        }
-        System.out.println("=========================================");
+//        System.out.println("===== SERVER STORAGE SNAPSHOT RECEIVED =====");
+//        System.out.println("Server   : " + serverStorageSnapshot.getServerName());
+//        System.out.println("IP       : " + serverStorageSnapshot.getServerIp());
+//        System.out.println("Timestamp: " + serverStorageSnapshot.getTimestamp());
+//
+//        for (MountPathStorageUsage spsu : serverStorageSnapshot.getMountPathStorageUsages()) {
+//            System.out.printf(
+//                    "Path: %-12s | Used: %6.2f%% | Used: %d / %d bytes%n",
+//                    spsu.getPath(),
+//                    spsu.getUsedPercent(),
+//                    spsu.getUsedBytes(),
+//                    spsu.getTotalBytes()
+//            );
+//        }
+//        System.out.println("=========================================");
 
 
         if (Files.exists(outputFile)) {
@@ -213,12 +213,12 @@ public class TopicConsumer implements Runnable {
                         .format(DateTimeFormatter.ofPattern("yyyy-MM-dd HH:mm:ss"));
 
 
-        System.out.printf(
-                "[%s] (%s) %s%n",
-                formattedTime,
-                event.getTopic(),
-                msg
-        );
+//        System.out.printf(
+//                "[%s] (%s) %s%n",
+//                formattedTime,
+//                event.getTopic(),
+//                msg
+//        );
 
         if (Files.exists(outputFile)) {
             writer.write(
