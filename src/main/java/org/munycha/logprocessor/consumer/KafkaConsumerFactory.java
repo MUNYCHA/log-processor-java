@@ -6,33 +6,68 @@ import org.apache.kafka.common.serialization.StringDeserializer;
 
 import java.util.Properties;
 
-
 public class KafkaConsumerFactory {
 
     private final Properties consumerProps;
 
-    public KafkaConsumerFactory(String bootstrapServers, String topic) {
+    public KafkaConsumerFactory(String bootstrapServers, String groupId) {
         consumerProps = new Properties();
 
-        // Kafka broker address(es)
-        consumerProps.put(ConsumerConfig.BOOTSTRAP_SERVERS_CONFIG, bootstrapServers);
+        // ===== REQUIRED =====
+        consumerProps.put(
+                ConsumerConfig.BOOTSTRAP_SERVERS_CONFIG,
+                bootstrapServers
+        );
 
-        // Deserializers for key and value — both are plain strings
-        consumerProps.put(ConsumerConfig.KEY_DESERIALIZER_CLASS_CONFIG, StringDeserializer.class.getName());
-        consumerProps.put(ConsumerConfig.VALUE_DESERIALIZER_CLASS_CONFIG, StringDeserializer.class.getName());
+        consumerProps.put(
+                ConsumerConfig.KEY_DESERIALIZER_CLASS_CONFIG,
+                StringDeserializer.class.getName()
+        );
+        consumerProps.put(
+                ConsumerConfig.VALUE_DESERIALIZER_CLASS_CONFIG,
+                StringDeserializer.class.getName()
+        );
 
-        // Use a unique group ID per topic to isolate consumption
-        consumerProps.put(ConsumerConfig.GROUP_ID_CONFIG, "file-log-consumer-" + topic);
+        consumerProps.put(
+                ConsumerConfig.GROUP_ID_CONFIG,
+                groupId
+        );
 
-        // Start consuming from the latest offset if no committed offset is found
-        consumerProps.put(ConsumerConfig.AUTO_OFFSET_RESET_CONFIG, "latest");
+        // ===== CRITICAL SAFETY =====
+
+        // Disable auto-commit — application controls commits
+        consumerProps.put(
+                ConsumerConfig.ENABLE_AUTO_COMMIT_CONFIG,
+                "false"
+        );
+
+        // Deterministic startup behavior
+        consumerProps.put(
+                ConsumerConfig.AUTO_OFFSET_RESET_CONFIG,
+                "earliest"
+        );
+
+        // ===== POLL SAFETY =====
+
+        consumerProps.put(
+                ConsumerConfig.MAX_POLL_RECORDS_CONFIG,
+                "200"
+        );
+
+        consumerProps.put(
+                ConsumerConfig.SESSION_TIMEOUT_MS_CONFIG,
+                "10000"
+        );
+
+        consumerProps.put(
+                ConsumerConfig.MAX_POLL_INTERVAL_MS_CONFIG,
+                "300000"
+        );
     }
-
 
     public KafkaConsumer<String, String> createConsumer() {
         return new KafkaConsumer<>(consumerProps);
     }
-
 
     public Properties getConsumerProps() {
         return consumerProps;
