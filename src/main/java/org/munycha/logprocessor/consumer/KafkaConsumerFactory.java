@@ -29,6 +29,12 @@ public class KafkaConsumerFactory {
         );
 
         consumerProps.put(
+                ConsumerConfig.CLIENT_ID_CONFIG,
+                "log-processor-" + java.util.UUID.randomUUID()
+        );
+
+
+        consumerProps.put(
                 ConsumerConfig.GROUP_ID_CONFIG,
                 groupId
         );
@@ -44,7 +50,7 @@ public class KafkaConsumerFactory {
         // Deterministic startup behavior
         consumerProps.put(
                 ConsumerConfig.AUTO_OFFSET_RESET_CONFIG,
-                "earliest"
+                "latest"
         );
 
         // ===== POLL SAFETY =====
