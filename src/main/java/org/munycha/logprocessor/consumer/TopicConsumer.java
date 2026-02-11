@@ -58,8 +58,7 @@ public final class TopicConsumer implements Runnable {
             String topic,
             TopicType type,
             Path outputFile,
-            String botToken,
-            String chatId,
+            TelegramNotifier notifier,
             List<String> alertKeywords,
             AlertDB alertDB,
             ServerStorageSnapshotDB serverStorageSnapshotDB,
@@ -76,7 +75,7 @@ public final class TopicConsumer implements Runnable {
         this.consumer = consumerFactory.createConsumer();
         this.consumer.subscribe(Collections.singletonList(topic));
 
-        this.notifier = new TelegramNotifier(botToken, chatId);
+        this.notifier = notifier;
     }
 
     // ===== MAIN LOOP =====

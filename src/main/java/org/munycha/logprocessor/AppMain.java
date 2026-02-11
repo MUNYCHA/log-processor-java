@@ -9,6 +9,7 @@ import org.munycha.logprocessor.consumer.TopicConsumer;
 import org.munycha.logprocessor.db.AlertDB;
 import org.munycha.logprocessor.db.MountPathStorageUsageDB;
 import org.munycha.logprocessor.db.ServerStorageSnapshotDB;
+import org.munycha.logprocessor.telegram.TelegramNotifier;
 
 import java.nio.file.Paths;
 import java.util.concurrent.ExecutorService;
@@ -41,6 +42,9 @@ public class AppMain {
         //Initialize path storage database
         MountPathStorageUsageDB mountPathStorageUsageDB = new MountPathStorageUsageDB(config.getDatabase());
 
+        //telegram notifier
+        TelegramNotifier notifier = new TelegramNotifier(config.getTelegramBotToken(),config.getTelegramChatId());
+
         // One thread per topic
         ExecutorService executor =
                 Executors.newFixedThreadPool(config.getTopics().size());
@@ -61,8 +65,7 @@ public class AppMain {
                                     t.getTopic(),
                                     t.getType(),
                                     Paths.get(t.getOutput()),
-                                    config.getTelegramBotToken(),
-                                    config.getTelegramChatId(),
+                                    notifier,
                                     config.getAlertKeywords(),
                                     alertDatabase,
                                     serverStorageUsageDB,
