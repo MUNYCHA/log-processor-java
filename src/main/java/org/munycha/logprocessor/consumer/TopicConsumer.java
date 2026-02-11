@@ -41,13 +41,6 @@ public final class TopicConsumer implements Runnable {
     private final MountPathStorageUsageDB mountPathStorageUsageDB;
 
     // ===== BOUNDED EXECUTORS =====
-    private final ExecutorService telegramExecutor =
-            new ThreadPoolExecutor(
-                    1, 1,
-                    0L, TimeUnit.MILLISECONDS,
-                    new ArrayBlockingQueue<>(200),
-                    new ThreadPoolExecutor.DiscardPolicy()
-            );
 
     private final ExecutorService dbExecutor =
             new ThreadPoolExecutor(
@@ -209,7 +202,7 @@ public final class TopicConsumer implements Runnable {
                         ? msg.substring(0, TELEGRAM_MAX_LEN)
                         : msg;
 
-        telegramExecutor.submit(() -> notifier.sendMessage(finalMsg));
+        this.notifier.sendMessage(finalMsg);
 
         dbExecutor.submit(() ->
                 alertDB.saveAlert(
@@ -229,7 +222,6 @@ public final class TopicConsumer implements Runnable {
     }
 
     private void shutdownExecutors() {
-        telegramExecutor.shutdown();
         dbExecutor.shutdown();
     }
 }
