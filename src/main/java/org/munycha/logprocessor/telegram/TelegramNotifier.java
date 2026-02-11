@@ -57,7 +57,7 @@ public class TelegramNotifier {
     }
 
     private void processQueue() {
-        System.out.println("[TelegramNotifier] Worker started, chatId: " + chatId);
+    //    System.out.println("[TelegramNotifier] Worker started, chatId: " + chatId);
 
         while (workerRunning) {
             try {
