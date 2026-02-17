@@ -3,67 +3,61 @@ package org.munycha.logprocessor.consumer;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.fasterxml.jackson.databind.ObjectWriter;
 import org.apache.kafka.clients.consumer.*;
+import org.apache.kafka.common.errors.WakeupException;
 import org.munycha.logprocessor.config.TopicType;
-import org.munycha.logprocessor.db.AlertDB;
-import org.munycha.logprocessor.db.MountPathStorageUsageDB;
-import org.munycha.logprocessor.db.ServerStorageSnapshotDB;
-import org.munycha.logprocessor.model.LogEvent;
-import org.munycha.logprocessor.model.MountPathStorageUsage;
-import org.munycha.logprocessor.model.ServerStorageSnapshot;
+import org.munycha.logprocessor.db.*;
+import org.munycha.logprocessor.model.*;
 import org.munycha.logprocessor.telegram.TelegramNotifier;
 
 import java.io.FileWriter;
 import java.io.IOException;
-import java.nio.file.Path;
-import java.time.Duration;
-import java.time.Instant;
-import java.time.ZoneId;
+import java.nio.file.*;
+import java.time.*;
 import java.time.format.DateTimeFormatter;
 import java.util.Collections;
 import java.util.List;
 import java.util.concurrent.*;
 
-public final class TopicConsumer implements Runnable {
-
-    private static final int TELEGRAM_MAX_LEN = 4000;
+public class TopicConsumer implements Runnable {
 
     private final String topic;
     private final TopicType type;
     private final Path outputFile;
     private final List<String> alertKeywords;
-
-    private final KafkaConsumer<String, String> consumer;
-    private final TelegramNotifier notifier;
-    private final ObjectMapper mapper = new ObjectMapper();
-
     private final AlertDB alertDB;
     private final ServerStorageSnapshotDB serverStorageSnapshotDB;
     private final MountPathStorageUsageDB mountPathStorageUsageDB;
+    private final KafkaConsumer<String, String> consumer;
+    private final TelegramNotifier notifier;
+    private final ObjectMapper mapper = new ObjectMapper();
+    private volatile boolean running = true;
 
-    // ===== BOUNDED EXECUTORS =====
-
-    private final ExecutorService dbExecutor =
+    private static final ExecutorService telegramAlertExecutor =
             new ThreadPoolExecutor(
-                    3, 3,
+                    1, 1,
                     0L, TimeUnit.MILLISECONDS,
-                    new ArrayBlockingQueue<>(500),
+                    new ArrayBlockingQueue<>(200),
                     new ThreadPoolExecutor.CallerRunsPolicy()
             );
 
-    private volatile boolean running = true;
+    private static final ExecutorService dbExecutor =
+            new ThreadPoolExecutor(
+                    3, 3,
+                    0L, TimeUnit.MILLISECONDS,
+                    new ArrayBlockingQueue<>(1000),
+                    new ThreadPoolExecutor.CallerRunsPolicy()
+            );
 
-    // ===== CONSTRUCTOR =====
-    public TopicConsumer(
-            KafkaConsumerFactory consumerFactory,
-            String topic,
-            TopicType type,
-            Path outputFile,
-            TelegramNotifier notifier,
-            List<String> alertKeywords,
-            AlertDB alertDB,
-            ServerStorageSnapshotDB serverStorageSnapshotDB,
-            MountPathStorageUsageDB mountPathStorageUsageDB
-    ) {
+    public TopicConsumer(KafkaConsumerFactory consumerFactory,
+                         String topic,
+                         TopicType type,
+                         Path outputFile,
+                         TelegramNotifier notifier,
+                         List<String> alertKeywords,
+                         AlertDB alertDB,
+                         ServerStorageSnapshotDB serverStorageSnapshotDB,
+                         MountPathStorageUsageDB mountPathStorageUsageDB) {
+
         this.topic = topic;
         this.type = type;
         this.outputFile = outputFile;
@@ -73,154 +67,212 @@ public final class TopicConsumer implements Runnable {
         this.mountPathStorageUsageDB = mountPathStorageUsageDB;
 
         this.consumer = consumerFactory.createConsumer();
-        this.consumer.subscribe(Collections.singletonList(topic));
-
+        this.consumer.subscribe(Collections.singletonList(this.topic));
         this.notifier = notifier;
     }
 
-    // ===== MAIN LOOP =====
+    private void prepareOutputFile() {
+        try {
+            if (outputFile.getParent() != null) {
+                Files.createDirectories(outputFile.getParent());
+            }
+            if (!Files.exists(outputFile)) {
+                Files.createFile(outputFile);
+            }
+        } catch (IOException e) {
+            System.err.println("[WARN] File preparation failed: " + e.getMessage());
+        }
+    }
+
     @Override
     public void run() {
+
+        prepareOutputFile();
+
         try (FileWriter writer = new FileWriter(outputFile.toFile(), true)) {
 
             while (running) {
+
                 ConsumerRecords<String, String> records =
                         consumer.poll(Duration.ofMillis(500));
 
-                if (records.isEmpty()) {
-                    continue;
-                }
+                for (ConsumerRecord<String, String> record : records) {
 
-                try {
-                    for (ConsumerRecord<String, String> record : records) {
-                        processRecord(record, writer);
+                    try {
+
+                        switch (type) {
+                            case LOG:
+                                handleLogRecord(record, writer);
+                                break;
+                            case METRIC:
+                                handleMetricRecord(record, writer);
+                                break;
+                            default:
+                                System.err.println("[WARN] Unknown TopicType: " + type);
+                        }
+
+                    } catch (Exception e) {
+                        System.err.printf(
+                                "[SKIPPED] topic=%s offset=%d error=%s%n",
+                                record.topic(),
+                                record.offset(),
+                                e.getMessage()
+                        );
                     }
-
-                    // Commit ONLY after all records processed
-                    consumer.commitSync();
-
-                } catch (Exception e) {
-                    // Do NOT commit offsets
-                    System.err.println("[Consumer] Processing failed — offsets NOT committed");
-                    e.printStackTrace();
                 }
+
+                consumer.commitSync();;
             }
 
+        } catch (WakeupException ignored) {
         } catch (IOException e) {
-            System.err.println("[Consumer] File error");
-            e.printStackTrace();
+            System.err.println("[ERROR] Writer failure: " + e.getMessage());
         } finally {
-            shutdownExecutors();
             consumer.close();
         }
     }
 
-    // ===== RECORD DISPATCH =====
-    private void processRecord(
-            ConsumerRecord<String, String> record,
-            FileWriter writer
-    ) throws Exception {
+    private void handleMetricRecord(ConsumerRecord<String, String> record, FileWriter writer) {
 
         try {
-            switch (type) {
-                case LOG:
-                    handleLog(record, writer);
-                    break;
-                case METRIC:
-                    handleMetric(record, writer);
-                    break;
-                default:
-                    throw new IllegalStateException("Unsupported TopicType: " + type);
+
+            ServerStorageSnapshot snapshot =
+                    mapper.readValue(record.value(), ServerStorageSnapshot.class);
+
+            try {
+                ObjectWriter pw = mapper.writerWithDefaultPrettyPrinter();
+                writer.write(pw.writeValueAsString(snapshot));
+                writer.write(System.lineSeparator());
+                writer.flush();
+            } catch (IOException ioe) {
+                System.err.println("[WARN] File write failed: " + ioe.getMessage());
             }
+
+            dbExecutor.submit(() -> {
+                try {
+                    long id = serverStorageSnapshotDB.saveSnapshot(snapshot);
+                    for (MountPathStorageUsage m : snapshot.getMountPathStorageUsages()) {
+                        mountPathStorageUsageDB.savePath(id, m);
+                    }
+                } catch (Exception ex) {
+                    System.err.println("[METRIC][DB] Save failed: " + ex.getMessage());
+                }
+            });
+
         } catch (Exception e) {
-            // Poison message protection
-            System.err.println("[Consumer] Bad message skipped");
-            e.printStackTrace();
+            throw new RuntimeException("Metric deserialization failed", e);
         }
     }
 
-    // ===== LOG HANDLING =====
-    private void handleLog(
-            ConsumerRecord<String, String> record,
-            FileWriter writer
-    ) throws Exception {
+    private void handleLogRecord(ConsumerRecord<String, String> record, FileWriter writer) {
 
-        LogEvent event = mapper.readValue(record.value(), LogEvent.class);
+        try {
 
-        String time =
+            LogEvent event = mapper.readValue(record.value(), LogEvent.class);
+
+            String msg = event.getMessage();
+            String lower = msg.toLowerCase();
+
+            String formatted =
+                    Instant.parse(event.getTimestamp())
+                            .atZone(ZoneId.systemDefault())
+                            .format(DateTimeFormatter.ofPattern("yyyy-MM-dd HH:mm:ss"));
+
+            try {
+                writer.write(formatted + " [" + event.getServerName() + "] " +
+                        msg + System.lineSeparator());
+                writer.flush();
+            } catch (IOException ioe) {
+                System.err.println("[WARN] File write failed: " + ioe.getMessage());
+            }
+
+            if (alertKeywords.stream().anyMatch(lower::contains)) {
+                processAlert(event);
+            }
+
+        } catch (Exception e) {
+            throw new RuntimeException("Log deserialization failed", e);
+        }
+    }
+
+    private void processAlert(LogEvent event) {
+
+        String formatted =
                 Instant.parse(event.getTimestamp())
                         .atZone(ZoneId.systemDefault())
                         .format(DateTimeFormatter.ofPattern("yyyy-MM-dd HH:mm:ss"));
 
-        writer.write(
-                time + " [" + event.getServerName() + "] " +
-                        event.getMessage() + System.lineSeparator()
-        );
-        writer.flush();
+        String message =
+                "ALERT\nTime: " + formatted +
+                        "\nHost: " + event.getServerName() +
+                        "\nFile: " + event.getPath() +
+                        "\nTopic: " + event.getTopic() +
+                        "\nMessage: " + event.getMessage();
 
-        String lower = event.getMessage().toLowerCase();
-        if (alertKeywords.stream().anyMatch(lower::contains)) {
-            sendAlert(event, time);
-        }
-    }
+        telegramAlertExecutor.submit(() -> {
+            int retries = 3;
+            while (retries-- > 0) {
+                try {
+                    notifier.sendMessage(message);
+                    return;
+                } catch (Exception e) {
+                    try { Thread.sleep(3000); }
+                    catch (InterruptedException ignored) {}
+                }
+            }
+            System.err.println("[ALERT] Telegram send failed after retries");
+        });
 
-    // ===== METRIC HANDLING =====
-    private void handleMetric(
-            ConsumerRecord<String, String> record,
-            FileWriter writer
-    ) throws Exception {
-
-        ServerStorageSnapshot snapshot =
-                mapper.readValue(record.value(), ServerStorageSnapshot.class);
-
-        ObjectWriter pretty = mapper.writerWithDefaultPrettyPrinter();
-        writer.write(pretty.writeValueAsString(snapshot));
-        writer.write(System.lineSeparator());
-        writer.flush();
-
-        // Synchronous DB write → correctness > speed
-        long id = serverStorageSnapshotDB.saveSnapshot(snapshot);
-        for (MountPathStorageUsage usage : snapshot.getMountPathStorageUsages()) {
-            mountPathStorageUsageDB.savePath(id, usage);
-        }
-    }
-
-    // ===== ALERT =====
-    private void sendAlert(LogEvent event, String time) {
-
-        String msg =
-                "ALERT\n" +
-                        " Time: " + time + "\n" +
-                        " Host: " + event.getServerName() + "\n" +
-                        " File: " + event.getPath() + "\n" +
-                        " Topic: " + event.getTopic() + "\n" +
-                        " Message: " + event.getMessage();
-
-        String finalMsg =
-                msg.length() > TELEGRAM_MAX_LEN
-                        ? msg.substring(0, TELEGRAM_MAX_LEN)
-                        : msg;
-
-        this.notifier.sendMessage(finalMsg);
-
-        dbExecutor.submit(() ->
+        dbExecutor.submit(() -> {
+            try {
                 alertDB.saveAlert(
                         event.getTopic(),
                         event.getTimestamp(),
                         event.getServerName(),
                         event.getPath(),
                         event.getMessage()
-                )
-        );
+                );
+            } catch (Exception e) {
+                System.err.println("[ALERT][DB] Save failed: " + e.getMessage());
+            }
+        });
     }
 
-    // ===== SHUTDOWN =====
     public void shutdown() {
+
+        System.out.println("[SHUTDOWN] Initiated...");
+
+        // 1. Stop poll loop
         running = false;
         consumer.wakeup();
+
+        // 2. Stop accepting new async tasks
+        telegramAlertExecutor.shutdown();
+        dbExecutor.shutdown();
+
+        try {
+
+            // 3. Wait for DB tasks to complete
+            if (!dbExecutor.awaitTermination(10, TimeUnit.SECONDS)) {
+                System.err.println("[SHUTDOWN] DB tasks did not finish in time. Forcing...");
+                dbExecutor.shutdownNow();
+            }
+
+            // 4. Wait for Telegram tasks
+            if (!telegramAlertExecutor.awaitTermination(5, TimeUnit.SECONDS)) {
+                System.err.println("[SHUTDOWN] Telegram tasks did not finish in time. Forcing...");
+                telegramAlertExecutor.shutdownNow();
+            }
+
+        } catch (InterruptedException e) {
+
+            System.err.println("[SHUTDOWN] Interrupted while waiting. Forcing shutdown...");
+            dbExecutor.shutdownNow();
+            telegramAlertExecutor.shutdownNow();
+            Thread.currentThread().interrupt();
+        }
+
+        System.out.println("[SHUTDOWN] Executors drained. Safe to exit.");
     }
 
-    private void shutdownExecutors() {
-        dbExecutor.shutdown();
-    }
 }

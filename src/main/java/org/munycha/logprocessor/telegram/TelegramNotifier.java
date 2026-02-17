@@ -1,6 +1,7 @@
 package org.munycha.logprocessor.telegram;
 
 import javax.net.ssl.HttpsURLConnection;
+import java.io.IOException;
 import java.io.InputStream;
 import java.io.OutputStream;
 import java.net.SocketTimeoutException;
@@ -22,73 +23,142 @@ public class TelegramNotifier {
 
         try {
             enforceRateLimit();
-        } catch (InterruptedException e) {
+        } catch (InterruptedException ignored) {
             return;
         }
 
         int maxRetries = 3;
 
         for (int i = 1; i <= maxRetries; i++) {
+
             try {
+
                 sendRequest(message);
                 lastSend = System.currentTimeMillis();
                 return;
 
             } catch (SocketTimeoutException e) {
-                System.err.println("[TelegramNotifier] Timeout sending message (attempt "
+
+                System.err.println("[TelegramNotifier] Timeout (attempt "
                         + i + "/" + maxRetries + ")");
 
                 if (i == maxRetries) {
-                    System.err.println("[TelegramNotifier] FAILED after max retries, message dropped.");
+                    System.err.println("[TelegramNotifier] FAILED after retries, dropped.");
                     return;
                 }
 
-                // Wait 1 second before retry
-                try { Thread.sleep(1000); } catch (InterruptedException ignored) {}
-            }
-            catch (Exception e) {
-                System.err.println("[TelegramNotifier] Error: " + e.getMessage());
+                sleep(1000);
+
+            } catch (RetryAfterException e) {
+
+                System.err.println("[TelegramNotifier] 429 retry_after="
+                        + e.retryAfter + "s");
+
+                sleep(e.retryAfter * 1000L);
+
+            } catch (Exception e) {
+
+                System.err.println("[TelegramNotifier] Fatal error: "
+                        + e.getMessage());
                 return;
             }
         }
     }
-
 
     private void enforceRateLimit() throws InterruptedException {
         long now = System.currentTimeMillis();
         long diff = now - lastSend;
 
         if (diff < 1000) {
-            Thread.sleep(1000 - diff);  // enforce 1 message/sec
+            Thread.sleep(1000 - diff);
         }
     }
 
-    private URL buildUrl() throws Exception {
-        return new URL("https://api.telegram.org/bot" + botToken + "/sendMessage");
-    }
-
     private void sendRequest(String message) throws Exception {
-        URL url = buildUrl();
+
+        URL url = new URL(
+                "https://api.telegram.org/bot" + botToken + "/sendMessage"
+        );
+
         HttpsURLConnection conn = (HttpsURLConnection) url.openConnection();
 
-        configureConnection(conn);
-        writeRequestBody(conn, message);
-        readResponse(conn);
-    }
-
-    private void configureConnection(HttpsURLConnection conn) throws Exception {
         conn.setRequestMethod("POST");
         conn.setConnectTimeout(7000);
         conn.setReadTimeout(7000);
         conn.setDoOutput(true);
-        conn.setRequestProperty("Content-Type", "application/json; charset=UTF-8");
-    }
+        conn.setRequestProperty(
+                "Content-Type", "application/json; charset=UTF-8"
+        );
 
-    private void writeRequestBody(HttpsURLConnection conn, String message) throws Exception {
         String body = buildJsonBody(message);
 
         try (OutputStream os = conn.getOutputStream()) {
             os.write(body.getBytes(StandardCharsets.UTF_8));
+        }
+
+        readResponse(conn);
+    }
+
+    private String readStream(InputStream is) throws IOException {
+
+        StringBuilder sb = new StringBuilder();
+        byte[] buffer = new byte[1024];
+        int len;
+
+        while ((len = is.read(buffer)) != -1) {
+            sb.append(new String(buffer, 0, len, StandardCharsets.UTF_8));
+        }
+
+        return sb.toString();
+    }
+
+
+    private void readResponse(HttpsURLConnection conn) throws Exception {
+
+        int status = conn.getResponseCode();
+
+        if (status == 200) {
+            try (InputStream is = conn.getInputStream()) {
+                // OK
+            }
+            return;
+        }
+
+        if (status == 429) {
+
+            try (InputStream es = conn.getErrorStream()) {
+
+                String body = readStream(es);
+
+                int retryAfter = extractRetryAfter(body);
+
+                throw new RetryAfterException(retryAfter);
+            }
+        }
+
+        if (status == 400) {
+            throw new Exception("Bad request (JSON likely malformed)");
+        }
+
+        throw new Exception("Telegram HTTP error: " + status);
+    }
+
+    private int extractRetryAfter(String body) {
+
+        try {
+            int idx = body.indexOf("retry_after");
+            if (idx == -1) return 5;
+
+            int colon = body.indexOf(":", idx);
+            int comma = body.indexOf(",", colon);
+            if (comma == -1) comma = body.indexOf("}", colon);
+
+            return Integer.parseInt(
+                    body.substring(colon + 1, comma).trim()
+            );
+
+        } catch (Exception ignored) {
+            return 5;
         }
     }
 
@@ -99,13 +169,23 @@ public class TelegramNotifier {
                 + "}";
     }
 
-    private void readResponse(HttpsURLConnection conn) throws Exception {
-        try (InputStream is = conn.getInputStream()) {
-            // Consume response
-        }
+    private String escapeJson(String s) {
+        return s
+                .replace("\\", "\\\\")
+                .replace("\"", "\\\"")
+                .replace("\n", "\\n")
+                .replace("\r", "\\r");
     }
 
-    private String escapeJson(String s) {
-        return s.replace("\"", "\\\"");
+    private void sleep(long ms) {
+        try { Thread.sleep(ms); }
+        catch (InterruptedException ignored) {}
+    }
+
+    private static class RetryAfterException extends Exception {
+        final int retryAfter;
+        RetryAfterException(int retryAfter) {
+            this.retryAfter = retryAfter;
+        }
     }
 }
