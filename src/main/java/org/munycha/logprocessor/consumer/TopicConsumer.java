@@ -17,13 +17,14 @@ import java.time.*;
 import java.time.format.DateTimeFormatter;
 import java.util.*;
 import java.util.concurrent.*;
+import java.util.stream.Collectors;
 
 public class TopicConsumer implements Runnable {
 
     private final String topic;
     private final TopicType type;
     private final Path outputFile;
-    private final List<String> alertKeywords;
+    private final Set<String> alertKeywords;
     private final AlertDB alertDB;
     private final ServerStorageSnapshotDB serverStorageSnapshotDB;
     private final MountPathStorageUsageDB mountPathStorageUsageDB;
@@ -32,7 +33,7 @@ public class TopicConsumer implements Runnable {
     private final ObjectMapper mapper = new ObjectMapper();
     private volatile boolean running = true;
 
-    private static final ExecutorService telegramAlertExecutor =
+    private final ExecutorService telegramAlertExecutor =
             Executors.newSingleThreadExecutor();
 
     public TopicConsumer(KafkaConsumerFactory consumerFactory,
@@ -48,7 +49,15 @@ public class TopicConsumer implements Runnable {
         this.topic = topic;
         this.type = type;
         this.outputFile = outputFile;
-        this.alertKeywords = alertKeywords;
+        this.alertKeywords =
+                alertKeywords == null
+                        ? Collections.emptySet()
+                        : alertKeywords.stream()
+                        .filter(Objects::nonNull)
+                        .map(String::trim)
+                        .filter(s -> !s.isEmpty())
+                        .map(String::toLowerCase)
+                        .collect(Collectors.toSet());
         this.alertDB = alertDB;
         this.serverStorageSnapshotDB = serverStorageSnapshotDB;
         this.mountPathStorageUsageDB = mountPathStorageUsageDB;
@@ -155,6 +164,12 @@ public class TopicConsumer implements Runnable {
 
     // ===================== LOG =====================
 
+    private boolean isAlert(String lowerMsg) {
+        return type == TopicType.LOG &&
+                !alertKeywords.isEmpty() &&
+                alertKeywords.stream().anyMatch(lowerMsg::contains);
+    }
+
     private void handleLogRecord(ConsumerRecord<String, String> record, FileWriter writer) {
 
         try {
@@ -173,10 +188,9 @@ public class TopicConsumer implements Runnable {
                     msg + System.lineSeparator());
             writer.flush();
 
-            if (alertKeywords.stream().anyMatch(lower::contains)) {
-
-                saveAlertDB(event);   // MUST FINISH FIRST
-                sendTelegramAsync(event); // async OK
+            if (isAlert(lower)) {
+                saveAlertDB(event);
+                sendTelegramAsync(event);
             }
 
             commit(record);

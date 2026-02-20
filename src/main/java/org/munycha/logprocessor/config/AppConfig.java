@@ -9,7 +9,6 @@ public class AppConfig {
     private String telegramChatId;
 
     private List<TopicConfig> topics;
-    private List<String> alertKeywords;
 
     private DatabaseConfig database;
 
@@ -31,11 +30,7 @@ public class AppConfig {
         return topics;
     }
 
-    public List<String> getAlertKeywords() {
-        return alertKeywords;
-    }
-
-    public DatabaseConfig getDatabase() {   // <-- NEW GETTER
+    public DatabaseConfig getDatabase() {
         return database;
     }
 }

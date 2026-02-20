@@ -66,7 +66,7 @@ public class AppMain {
                                     t.getType(),
                                     Paths.get(t.getOutput()),
                                     notifier,
-                                    config.getAlertKeywords(),
+                                    t.getAlertKeywords(),
                                     alertDatabase,
                                     serverStorageUsageDB,
                                     mountPathStorageUsageDB
@@ -80,5 +80,7 @@ public class AppMain {
             System.out.println("Shutting down consumers...");
             executor.shutdownNow();
         }));
+
+        new java.util.concurrent.CountDownLatch(1).await();
     }
 }
