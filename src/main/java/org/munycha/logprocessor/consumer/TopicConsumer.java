@@ -10,6 +10,7 @@ import org.munycha.logprocessor.db.*;
 import org.munycha.logprocessor.model.*;
 import org.munycha.logprocessor.telegram.TelegramNotifier;
 
+import java.io.BufferedWriter;
 import java.io.FileWriter;
 import java.io.IOException;
 import java.nio.file.*;
@@ -34,8 +35,12 @@ public class TopicConsumer implements Runnable {
     private volatile boolean running = true;
 
     private final ExecutorService telegramAlertExecutor =
-            Executors.newSingleThreadExecutor();
-
+            new ThreadPoolExecutor(
+                    1, 1,
+                    0L, TimeUnit.MILLISECONDS,
+                    new LinkedBlockingQueue<>(1000),
+                    new ThreadPoolExecutor.DiscardPolicy()
+            );
     public TopicConsumer(KafkaConsumerFactory consumerFactory,
                          String topic,
                          TopicType type,
@@ -85,20 +90,29 @@ public class TopicConsumer implements Runnable {
 
         prepareOutputFile();
 
-        try (FileWriter writer = new FileWriter(outputFile.toFile(), true)) {
+        try (BufferedWriter writer =
+                     new BufferedWriter(
+                             new FileWriter(outputFile.toFile(), true),
+                             64 * 1024
+                     )) {
 
             while (running) {
 
                 ConsumerRecords<String, String> records =
                         consumer.poll(Duration.ofMillis(500));
 
+                boolean success = true;
+                List<LogEvent> telegramQueue = new ArrayList<>();
                 for (ConsumerRecord<String, String> record : records) {
 
                     try {
 
                         switch (type) {
                             case LOG:
-                                handleLogRecord(record, writer);
+                                LogEvent alertEvent = handleLogRecord(record, writer);
+                                if (alertEvent != null) {
+                                    telegramQueue.add(alertEvent);
+                                }
                                 break;
                             case METRIC:
                                 handleMetricRecord(record, writer);
@@ -106,6 +120,7 @@ public class TopicConsumer implements Runnable {
                         }
 
                     } catch (Exception e) {
+                        success = false;
                         System.err.printf(
                                 "[RETRY] topic=%s partition=%d offset=%d reason=%s%n",
                                 record.topic(),
@@ -113,6 +128,15 @@ public class TopicConsumer implements Runnable {
                                 record.offset(),
                                 e.getMessage()
                         );
+                        break;
+                    }
+                }
+                if(success){
+                    consumer.commitSync();
+                    writer.flush();
+
+                    for (LogEvent ev : telegramQueue) {
+                        sendTelegramAsync(ev);
                     }
                 }
             }
@@ -125,19 +149,9 @@ public class TopicConsumer implements Runnable {
         }
     }
 
-    private void commit(ConsumerRecord<String, String> record) {
-
-        TopicPartition tp = new TopicPartition(record.topic(), record.partition());
-
-        consumer.commitSync(Collections.singletonMap(
-                tp,
-                new OffsetAndMetadata(record.offset() + 1)
-        ));
-    }
-
     // ===================== METRIC =====================
 
-    private void handleMetricRecord(ConsumerRecord<String, String> record, FileWriter writer) {
+    private void handleMetricRecord(ConsumerRecord<String, String> record, BufferedWriter writer) {
 
         try {
 
@@ -147,15 +161,12 @@ public class TopicConsumer implements Runnable {
             ObjectWriter pw = mapper.writerWithDefaultPrettyPrinter();
             writer.write(pw.writeValueAsString(snapshot));
             writer.write(System.lineSeparator());
-            writer.flush();
 
             long id = serverStorageSnapshotDB.saveSnapshot(snapshot);
 
             for (MountPathStorageUsage m : snapshot.getMountPathStorageUsages()) {
                 mountPathStorageUsageDB.savePath(id, m);
             }
-
-            commit(record);
 
         } catch (Exception e) {
             throw new RuntimeException("Metric DB save failed", e);
@@ -170,7 +181,7 @@ public class TopicConsumer implements Runnable {
                 alertKeywords.stream().anyMatch(lowerMsg::contains);
     }
 
-    private void handleLogRecord(ConsumerRecord<String, String> record, FileWriter writer) {
+    private LogEvent handleLogRecord(ConsumerRecord<String, String> record, BufferedWriter writer) {
 
         try {
 
@@ -186,14 +197,15 @@ public class TopicConsumer implements Runnable {
 
             writer.write(formatted + " [" + event.getServerName() + "] " +
                     msg + System.lineSeparator());
-            writer.flush();
 
-            if (isAlert(lower)) {
+            boolean alert = isAlert(lower);
+
+            if (alert) {
                 saveAlertDB(event);
-                sendTelegramAsync(event);
+                return event;
             }
 
-            commit(record);
+            return null;
 
         } catch (Exception e) {
             throw new RuntimeException("Log processing failed", e);
