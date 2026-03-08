@@ -1,14 +1,17 @@
-package org.munycha.logprocessor.consumer;
+package org.munycha.logprocessor.kafka;
 
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.fasterxml.jackson.databind.ObjectWriter;
 import org.apache.kafka.clients.consumer.*;
-import org.apache.kafka.common.TopicPartition;
 import org.apache.kafka.common.errors.WakeupException;
 import org.munycha.logprocessor.config.TopicType;
-import org.munycha.logprocessor.db.*;
-import org.munycha.logprocessor.model.*;
-import org.munycha.logprocessor.telegram.TelegramNotifier;
+import org.munycha.logprocessor.model.LogEvent;
+import org.munycha.logprocessor.model.DiskUsage;
+import org.munycha.logprocessor.model.ServerStorageSnapshot;
+import org.munycha.logprocessor.notification.TelegramNotificationService;
+import org.munycha.logprocessor.repository.AlertRepository;
+import org.munycha.logprocessor.repository.DiskUsageRepository;
+import org.munycha.logprocessor.repository.ServerStorageSnapshotRepository;
 
 import java.io.BufferedWriter;
 import java.io.FileWriter;
@@ -20,17 +23,17 @@ import java.util.*;
 import java.util.concurrent.*;
 import java.util.stream.Collectors;
 
-public class TopicConsumer implements Runnable {
+public class KafkaTopicConsumer implements Runnable {
 
     private final String topic;
     private final TopicType type;
     private final Path outputFile;
     private final Set<String> alertKeywords;
-    private final AlertDB alertDB;
-    private final ServerStorageSnapshotDB serverStorageSnapshotDB;
-    private final MountPathStorageUsageDB mountPathStorageUsageDB;
+    private final AlertRepository alertRepository;
+    private final ServerStorageSnapshotRepository storageSnapshotRepository;
+    private final DiskUsageRepository diskUsageRepository;
     private final KafkaConsumer<String, String> consumer;
-    private final TelegramNotifier notifier;
+    private final TelegramNotificationService notifier;
     private final ObjectMapper mapper = new ObjectMapper();
     private volatile boolean running = true;
 
@@ -41,15 +44,16 @@ public class TopicConsumer implements Runnable {
                     new LinkedBlockingQueue<>(1000),
                     new ThreadPoolExecutor.DiscardPolicy()
             );
-    public TopicConsumer(KafkaConsumerFactory consumerFactory,
-                         String topic,
-                         TopicType type,
-                         Path outputFile,
-                         TelegramNotifier notifier,
-                         List<String> alertKeywords,
-                         AlertDB alertDB,
-                         ServerStorageSnapshotDB serverStorageSnapshotDB,
-                         MountPathStorageUsageDB mountPathStorageUsageDB) {
+
+    public KafkaTopicConsumer(KafkaConsumerFactory consumerFactory,
+                              String topic,
+                              TopicType type,
+                              Path outputFile,
+                              TelegramNotificationService notifier,
+                              List<String> alertKeywords,
+                              AlertRepository alertRepository,
+                              ServerStorageSnapshotRepository storageSnapshotRepository,
+                              DiskUsageRepository diskUsageRepository) {
 
         this.topic = topic;
         this.type = type;
@@ -63,9 +67,9 @@ public class TopicConsumer implements Runnable {
                         .filter(s -> !s.isEmpty())
                         .map(String::toLowerCase)
                         .collect(Collectors.toSet());
-        this.alertDB = alertDB;
-        this.serverStorageSnapshotDB = serverStorageSnapshotDB;
-        this.mountPathStorageUsageDB = mountPathStorageUsageDB;
+        this.alertRepository = alertRepository;
+        this.storageSnapshotRepository = storageSnapshotRepository;
+        this.diskUsageRepository = diskUsageRepository;
 
         this.consumer = consumerFactory.createConsumer();
         this.consumer.subscribe(Collections.singletonList(this.topic));
@@ -131,7 +135,7 @@ public class TopicConsumer implements Runnable {
                         break;
                     }
                 }
-                if(success){
+                if (success) {
                     consumer.commitSync();
                     writer.flush();
 
@@ -162,10 +166,10 @@ public class TopicConsumer implements Runnable {
             writer.write(pw.writeValueAsString(snapshot));
             writer.write(System.lineSeparator());
 
-            long id = serverStorageSnapshotDB.saveSnapshot(snapshot);
+            long id = storageSnapshotRepository.saveSnapshot(snapshot);
 
-            for (MountPathStorageUsage m : snapshot.getMountPathStorageUsages()) {
-                mountPathStorageUsageDB.savePath(id, m);
+            for (DiskUsage diskUsage : snapshot.getDiskUsages()) {
+                diskUsageRepository.savePath(id, diskUsage);
             }
 
         } catch (Exception e) {
@@ -201,7 +205,7 @@ public class TopicConsumer implements Runnable {
             boolean alert = isAlert(lower);
 
             if (alert) {
-                saveAlertDB(event);
+                saveAlert(event);
                 return event;
             }
 
@@ -214,9 +218,9 @@ public class TopicConsumer implements Runnable {
 
     // ===================== ALERT =====================
 
-    private void saveAlertDB(LogEvent event) {
+    private void saveAlert(LogEvent event) {
 
-        alertDB.saveAlert(
+        alertRepository.saveAlert(
                 event.getTopic(),
                 event.getTimestamp(),
                 event.getServerName(),

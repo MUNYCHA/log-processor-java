@@ -1,21 +1,21 @@
-package org.munycha.logprocessor.db;
+package org.munycha.logprocessor.repository;
 
 import org.munycha.logprocessor.config.DatabaseConfig;
-import org.munycha.logprocessor.model.MountPathStorageUsage;
+import org.munycha.logprocessor.model.DiskUsage;
 
 import java.sql.Connection;
 import java.sql.DriverManager;
 import java.sql.PreparedStatement;
 import java.sql.SQLException;
 
-public class MountPathStorageUsageDB {
+public class DiskUsageRepository {
 
     private final String url;
     private final String user;
     private final String password;
     private final String table;
 
-    public MountPathStorageUsageDB(DatabaseConfig dbConfig) {
+    public DiskUsageRepository(DatabaseConfig dbConfig) {
         this.url = dbConfig.getUrl();
         this.user = dbConfig.getUser();
         this.password = dbConfig.getPassword();
@@ -26,7 +26,7 @@ public class MountPathStorageUsageDB {
         return DriverManager.getConnection(url, user, password);
     }
 
-    public void savePath(long serverStorageSnapshotId, MountPathStorageUsage mountPathStorageUsage) throws SQLException {
+    public void savePath(long snapshotId, DiskUsage usage) throws SQLException {
 
         String sql =
                 "INSERT INTO " + table +
@@ -36,11 +36,11 @@ public class MountPathStorageUsageDB {
         try (Connection conn = getConnection();
              PreparedStatement stmt = conn.prepareStatement(sql)) {
 
-            stmt.setLong(1, serverStorageSnapshotId);
-            stmt.setString(2, mountPathStorageUsage.getPath());
-            stmt.setLong(3, mountPathStorageUsage.getTotalBytes());
-            stmt.setLong(4, mountPathStorageUsage.getUsedBytes());
-            stmt.setDouble(5, mountPathStorageUsage.getUsedPercent());
+            stmt.setLong(1, snapshotId);
+            stmt.setString(2, usage.getPath());
+            stmt.setLong(3, usage.getTotalBytes());
+            stmt.setLong(4, usage.getUsedBytes());
+            stmt.setDouble(5, usage.getUsedPercent());
 
             stmt.executeUpdate();
         }

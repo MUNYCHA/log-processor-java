@@ -1,4 +1,4 @@
-package org.munycha.logprocessor.db;
+package org.munycha.logprocessor.repository;
 
 import org.munycha.logprocessor.config.DatabaseConfig;
 import org.munycha.logprocessor.model.ServerStorageSnapshot;
@@ -6,14 +6,14 @@ import org.munycha.logprocessor.model.ServerStorageSnapshot;
 import java.sql.*;
 import java.time.Instant;
 
-public class ServerStorageSnapshotDB {
+public class ServerStorageSnapshotRepository {
 
     private final String url;
     private final String user;
     private final String password;
     private final String table;
 
-    public ServerStorageSnapshotDB(DatabaseConfig dbConfig) {
+    public ServerStorageSnapshotRepository(DatabaseConfig dbConfig) {
         this.url = dbConfig.getUrl();
         this.user = dbConfig.getUser();
         this.password = dbConfig.getPassword();
@@ -24,27 +24,24 @@ public class ServerStorageSnapshotDB {
         return DriverManager.getConnection(url, user, password);
     }
 
-    public long saveSnapshot(ServerStorageSnapshot serverStorageSnapshot) throws SQLException {
+    public long saveSnapshot(ServerStorageSnapshot snapshot) throws SQLException {
 
         String sql =
                 "INSERT INTO " + table +
-                        " (system_id,system_name,server_ip, server_name, collected_at) VALUES (?, ?, ?, ?, ?)";
+                        " (system_id, system_name, server_ip, server_name, collected_at) VALUES (?, ?, ?, ?, ?)";
 
         try (Connection conn = getConnection();
              PreparedStatement stmt =
                      conn.prepareStatement(sql, Statement.RETURN_GENERATED_KEYS)) {
 
-            stmt.setString(1, serverStorageSnapshot.getSystemId());
-            stmt.setString(2, serverStorageSnapshot.getSystemName());
-            stmt.setString(3, serverStorageSnapshot.getServerIp());
-            stmt.setString(4, serverStorageSnapshot.getServerName());
+            stmt.setString(1, snapshot.getSystemId());
+            stmt.setString(2, snapshot.getSystemName());
+            stmt.setString(3, snapshot.getServerIp());
+            stmt.setString(4, snapshot.getServerName());
 
-            // Convert ISO timestamp string to SQL TIMESTAMP
             stmt.setTimestamp(
                     5,
-                    Timestamp.from(
-                            Instant.parse(serverStorageSnapshot.getTimestamp())
-                    )
+                    Timestamp.from(Instant.parse(snapshot.getTimestamp()))
             );
 
             stmt.executeUpdate();

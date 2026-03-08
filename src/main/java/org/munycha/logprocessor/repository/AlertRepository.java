@@ -1,4 +1,4 @@
-package org.munycha.logprocessor.db;
+package org.munycha.logprocessor.repository;
 
 import org.munycha.logprocessor.config.DatabaseConfig;
 
@@ -8,13 +8,14 @@ import java.sql.PreparedStatement;
 import java.sql.Timestamp;
 import java.time.Instant;
 
-public class AlertDB {
+public class AlertRepository {
+
     private final String url;
     private final String user;
     private final String password;
     private final String table;
 
-    public AlertDB(DatabaseConfig dbConfig) {
+    public AlertRepository(DatabaseConfig dbConfig) {
         this.url = dbConfig.getUrl();
         this.user = dbConfig.getUser();
         this.password = dbConfig.getPassword();
@@ -56,6 +57,4 @@ public class AlertDB {
             System.err.println("[DB ERROR] Failed to save alert: " + e.getMessage());
         }
     }
-
 }
-

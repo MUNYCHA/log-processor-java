@@ -1,4 +1,4 @@
-package org.munycha.logprocessor.telegram;
+package org.munycha.logprocessor.notification;
 
 import javax.net.ssl.HttpsURLConnection;
 import java.io.IOException;
@@ -8,13 +8,13 @@ import java.net.SocketTimeoutException;
 import java.net.URL;
 import java.nio.charset.StandardCharsets;
 
-public class TelegramNotifier {
+public class TelegramNotificationService {
 
     private final String botToken;
     private final String chatId;
     private long lastSend = 0;
 
-    public TelegramNotifier(String botToken, String chatId) {
+    public TelegramNotificationService(String botToken, String chatId) {
         this.botToken = botToken;
         this.chatId = chatId;
     }
@@ -39,11 +39,11 @@ public class TelegramNotifier {
 
             } catch (SocketTimeoutException e) {
 
-                System.err.println("[TelegramNotifier] Timeout (attempt "
+                System.err.println("[TelegramNotificationService] Timeout (attempt "
                         + i + "/" + maxRetries + ")");
 
                 if (i == maxRetries) {
-                    System.err.println("[TelegramNotifier] FAILED after retries, dropped.");
+                    System.err.println("[TelegramNotificationService] FAILED after retries, dropped.");
                     return;
                 }
 
@@ -51,14 +51,14 @@ public class TelegramNotifier {
 
             } catch (RetryAfterException e) {
 
-                System.err.println("[TelegramNotifier] 429 retry_after="
+                System.err.println("[TelegramNotificationService] 429 retry_after="
                         + e.retryAfter + "s");
 
                 sleep(e.retryAfter * 1000L);
 
             } catch (Exception e) {
 
-                System.err.println("[TelegramNotifier] Fatal error: "
+                System.err.println("[TelegramNotificationService] Fatal error: "
                         + e.getMessage());
                 return;
             }
@@ -111,7 +111,6 @@ public class TelegramNotifier {
 
         return sb.toString();
     }
-
 
     private void readResponse(HttpsURLConnection conn) throws Exception {
 

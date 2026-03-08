@@ -1,25 +1,30 @@
 package org.munycha.logprocessor.model;
 
+import com.fasterxml.jackson.annotation.JsonProperty;
+
 import java.util.List;
 
 public class ServerStorageSnapshot {
+
     private String systemId;
     private String systemName;
     private String serverName;
     private String serverIp;
     private String timestamp;
-    private List<MountPathStorageUsage> mountPathStorageUsages;
+    @JsonProperty("mountPathStorageUsages")
+    private List<DiskUsage> diskUsages;
 
     public ServerStorageSnapshot() {
     }
 
-    public ServerStorageSnapshot(String systemId, String systemName, String serverName, String serverIp, String timestamp, List<MountPathStorageUsage> mountPathStorageUsages) {
+    public ServerStorageSnapshot(String systemId, String systemName, String serverName, String serverIp,
+                                 String timestamp, List<DiskUsage> diskUsages) {
         this.systemId = systemId;
         this.systemName = systemName;
         this.serverName = serverName;
         this.serverIp = serverIp;
         this.timestamp = timestamp;
-        this.mountPathStorageUsages = mountPathStorageUsages;
+        this.diskUsages = diskUsages;
     }
 
     public String getSystemId() {
@@ -62,12 +67,11 @@ public class ServerStorageSnapshot {
         this.timestamp = timestamp;
     }
 
-    public List<MountPathStorageUsage> getMountPathStorageUsages() {
-        return mountPathStorageUsages;
+    public List<DiskUsage> getDiskUsages() {
+        return diskUsages;
     }
 
-    public void setMountPathStorageUsages(List<MountPathStorageUsage> mountPathStorageUsages) {
-        this.mountPathStorageUsages = mountPathStorageUsages;
+    public void setDiskUsages(List<DiskUsage> diskUsages) {
+        this.diskUsages = diskUsages;
     }
 }
-

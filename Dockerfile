@@ -12,6 +12,6 @@ RUN mvn clean package -DskipTests
 FROM eclipse-temurin:17-jre-alpine
 WORKDIR /app
 
-COPY --from=builder /build/target/kafka-consumer.jar app.jar
+COPY --from=builder /build/target/log-processor.jar app.jar
 
 ENTRYPOINT ["java", "-jar", "/app/app.jar"]

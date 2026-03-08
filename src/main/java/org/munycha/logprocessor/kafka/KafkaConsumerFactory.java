@@ -1,4 +1,4 @@
-package org.munycha.logprocessor.consumer;
+package org.munycha.logprocessor.kafka;
 
 import org.apache.kafka.clients.consumer.ConsumerConfig;
 import org.apache.kafka.clients.consumer.KafkaConsumer;
@@ -32,7 +32,6 @@ public class KafkaConsumerFactory {
                 ConsumerConfig.CLIENT_ID_CONFIG,
                 "log-processor-" + java.util.UUID.randomUUID()
         );
-
 
         consumerProps.put(
                 ConsumerConfig.GROUP_ID_CONFIG,
