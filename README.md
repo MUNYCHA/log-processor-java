@@ -1,32 +1,18 @@
-
----
-
-````md
 # log-processor
 
-**log-processor** is a **Java 8–compatible Kafka log processing application** that consumes log and metric data from **Apache Kafka** and processes it for storage, alerting, and analysis.
-
-It provides:
-- Continuous consumption of log and metric messages from Kafka topics
-- File-based persistence of logs and metrics
-- Keyword-based alert detection
-- Alert notifications via Telegram
-- Persistence of alerts and metrics to MySQL
+**log-processor** is a Java 8-compatible Kafka consumer application that processes log and metric messages from Apache Kafka topics, writes them to files, persists alerts and metrics to MySQL, and sends alert notifications via Telegram.
 
 ---
 
 ## Requirements
 
-- **Java:** 1.8 (Java 8)
-- **Build tool:** Maven 3.6+
-- **Kafka:** Reachable Kafka broker
-- **Database:** MySQL 5.7+ / 8.x
-- **OS:** Linux (paths and filesystem layout are Linux-oriented)
-
-Verify Java:
-```bash
-java -version
-````
+| Requirement | Version |
+|---|---|
+| Java | 8 (1.8) |
+| Maven | 3.6+ |
+| Apache Kafka | Reachable broker |
+| MySQL | 5.7+ or 8.x |
+| OS | Linux |
 
 ---
 
@@ -36,9 +22,9 @@ java -version
 mvn clean package
 ```
 
-### Output
+Output JAR:
 
-```text
+```
 target/log-processor.jar
 ```
 
@@ -46,25 +32,35 @@ target/log-processor.jar
 
 ## Run
 
-```bash
-java -jar /path/to/log-processor.jar --config=/path/to/config/config.json
-```
+The config file path can be supplied in three ways (checked in this order):
 
-### Example
+1. **CLI argument:**
 
-```bash
-java -jar target/log-processor.jar --config=./config/config.json
-```
+   ```bash
+   java -jar target/log-processor.jar --config=/path/to/consumer_config.json
+   ```
 
-> The application requires an external JSON configuration file.
+2. **Environment variable:**
+
+   ```bash
+   CONSUMER_CONFIG=/path/to/consumer_config.json java -jar target/log-processor.jar
+   ```
+
+3. **JVM system property:**
+
+   ```bash
+   java -Dconsumer.config=/path/to/consumer_config.json -jar target/log-processor.jar
+   ```
+
+If none of the above are provided, the application falls back to `config/consumer_config.json` on the classpath.
 
 ---
 
-## Configuration Overview
+## Configuration
 
-The application is configured using **one JSON file**.
+The application is driven by a single JSON file.
 
-### Example: `config.json`
+### Full Example: `consumer_config.json`
 
 ```json
 {
@@ -73,226 +69,144 @@ The application is configured using **one JSON file**.
   "telegramBotToken": "<BOT_TOKEN>",
   "telegramChatId": "<CHAT_ID>",
 
-  "topics": [
-    {
-      "topic": "app1-topic",
-      "type": "LOG",
-      "output": "/data/logs/received_app1.log"
-    },
-    {
-      "topic": "app2-topic",
-      "type": "LOG",
-      "output": "/data/logs/received_app2.log"
-    },
-    {
-      "topic": "app3-topic",
-      "type": "LOG",
-      "output": "/data/logs/received_app3.log"
-    },
-    {
-      "topic": "app4-topic",
-      "type": "LOG",
-      "output": "/data/logs/received_app4.log"
-    },
-    {
-      "topic": "server-topic",
-      "type": "LOG",
-      "output": "/data/logs/received_server.log"
-    },
-    {
-      "topic": "system-topic",
-      "type": "LOG",
-      "output": "/data/logs/received_system.log"
-    },
-    {
-      "topic": "server-storage-snapshot",
-      "type": "METRIC",
-      "output": "/data/logs/received_system_resources_daily.json"
-    }
-  ],
-
-  "alertKeywords": [
-    "error",
-    "fail",
-    "failure",
-    "fatal",
-    "exception",
-    "timeout",
-    "server error",
-    "critical",
-    "warn",
-    "warning",
-    "panic",
-    "crash",
-    "500",
-    "404",
-    "503"
-  ],
-
   "database": {
     "url": "jdbc:mysql://localhost:3306/logDB",
     "user": "dbuser",
     "password": "dbpassword",
-
     "tables": {
       "alertLogTable": "alert_logs",
       "serverStorageSnapshotTable": "server_storage_snapshot",
       "mountPathStorageUsageTable": "mount_path_storage_usage"
     }
-  }
+  },
+
+  "topics": [
+    {
+      "topic": "app-logs",
+      "type": "LOG",
+      "output": "/data/logs/app.log",
+      "alertKeywords": ["error", "fatal", "exception", "timeout", "critical"]
+    },
+    {
+      "topic": "server-storage-snapshot",
+      "type": "METRIC",
+      "output": "/data/logs/server_storage.json"
+    }
+  ]
 }
 ```
 
 ---
 
-## Configuration Details
+### Field Reference
 
-### Kafka Connection
+#### Top-level
 
-```json
-"bootstrapServers": "localhost:9092"
-```
+| Field | Type | Description |
+|---|---|---|
+| `bootstrapServers` | string | Kafka broker address(es), e.g. `host:9092` |
+| `telegramBotToken` | string | Telegram Bot API token |
+| `telegramChatId` | string | Telegram chat/channel ID to send alerts to |
+| `database` | object | MySQL connection and table names |
+| `topics` | array | List of Kafka topic consumers |
 
-* Kafka bootstrap server list
-* Used by all Kafka consumers in the application
+#### `database`
 
----
+| Field | Description |
+|---|---|
+| `url` | JDBC connection URL |
+| `user` | Database username |
+| `password` | Database password |
+| `tables.alertLogTable` | Table for alert log records |
+| `tables.serverStorageSnapshotTable` | Table for storage snapshot summaries |
+| `tables.mountPathStorageUsageTable` | Table for per-mount disk usage rows |
 
-### Topics
+#### `topics[]`
 
-Defines which Kafka topics are consumed and how messages are processed.
-
-Fields:
-
-* `topic`: Kafka topic name
-* `type`: Message type (`LOG` or `METRIC`)
-* `output`: Absolute path to the output file
-
-#### Supported Types
-
-* **LOG**
-
-   * Plain or structured log messages
-   * Scanned for alert keywords
-   * Written to `.log` files
-
-* **METRIC**
-
-   * Structured metric data
-   * Written as JSON
-   * Persisted to database tables
+| Field | Required | Description |
+|---|---|---|
+| `topic` | Yes | Kafka topic name |
+| `type` | Yes | `LOG` or `METRIC` |
+| `output` | Yes | Absolute path to the output file |
+| `alertKeywords` | No | List of keywords that trigger an alert (LOG topics only, case-insensitive) |
 
 ---
 
-### Alert Keywords
+## Topic Types
 
-```json
-"alertKeywords": [ "error", "fatal", "exception" ]
-```
+### LOG
 
-* Keywords used to detect alert conditions in log messages
-* Matching is typically case-insensitive
-* When matched:
+- Each message is expected to be a JSON `LogEvent` with fields: `serverName`, `path`, `topic`, `timestamp`, `message`
+- Written to the output `.log` file as: `yyyy-MM-dd HH:mm:ss [serverName] message`
+- If any `alertKeywords` match the message (case-insensitive), the record is:
+  - Saved to the `alert_logs` database table
+  - Sent as a Telegram notification
 
-   * An alert record is stored
-   * A Telegram notification is sent
+### METRIC
 
----
-
-### Telegram Alerts
-
-```json
-"telegramBotToken"
-"telegramChatId"
-```
-
-Used to send alert notifications when alert keywords are detected.
+- Each message is expected to be a JSON `ServerStorageSnapshot`
+- Written to the output `.json` file in pretty-printed JSON format
+- Saved atomically to `server_storage_snapshot` and `mount_path_storage_usage` in a single DB transaction
 
 ---
 
-### Database Configuration
+## Database Schema
 
-```json
-"database": { ... }
-```
+### `alert_logs`
 
-The database is used to persist:
+| Column | Type |
+|---|---|
+| `id` | BIGINT (PK, auto-increment) |
+| `topic` | VARCHAR |
+| `timestamp` | DATETIME |
+| `server_name` | VARCHAR |
+| `path` | VARCHAR |
+| `message` | TEXT |
 
-* Alert logs
-* Server storage snapshots
-* Mount path storage usage metrics
+### `server_storage_snapshot`
 
-#### Tables
+| Column | Type |
+|---|---|
+| `id` | BIGINT (PK, auto-increment) |
+| `system_id` | VARCHAR |
+| `system_name` | VARCHAR |
+| `server_ip` | VARCHAR |
+| `server_name` | VARCHAR |
+| `collected_at` | DATETIME |
 
-| Purpose                  | Table Name                 |
-| ------------------------ | -------------------------- |
-| Alert logs               | `alert_logs`               |
-| Storage snapshot summary | `server_storage_snapshot`  |
-| Mount path storage usage | `mount_path_storage_usage` |
+### `mount_path_storage_usage`
 
----
-
-## Output Files
-
-All output paths must be **absolute paths**.
-
-Examples:
-
-```
-/data/logs/received_app1.log
-/data/logs/received_system_resources_daily.json
-```
-
-The application does not create directories automatically.
-
----
-
-## Java Compatibility
-
-* Compiled with **Java 8**
-* Bytecode target: **Java 8**
-* Runs on Java 8 runtime without additional flags
+| Column | Type |
+|---|---|
+| `id` | BIGINT (PK, auto-increment) |
+| `server_storage_snapshot_id` | BIGINT (FK) |
+| `path` | VARCHAR |
+| `total_bytes` | BIGINT |
+| `used_bytes` | BIGINT |
+| `used_percent` | DOUBLE |
 
 ---
 
-## Runtime Characteristics
+## Runtime Behavior
 
-* Single JVM process
-* Long-running Kafka consumer
-* Console-based application
-* No HTTP endpoints
-* Designed to be stopped with `CTRL+C`
+- One Kafka consumer thread per topic
+- Manual offset commit — offsets are committed only after the file write **and** DB save both succeed
+- Up to 5 Telegram alerts queued per poll batch (prevents log-storm flooding)
+- Telegram sends are rate-limited to 1 per 3 seconds; adaptive backoff doubles the interval on each 429 response (up to 60 seconds), resets to baseline on success
+- Output directories are created automatically if they do not exist
+- Graceful shutdown on `CTRL+C`: consumers stop, in-flight Kafka commits complete, pending Telegram alerts are drained
 
 ---
 
 ## Notes
 
-* Kafka topics must exist or auto-creation must be enabled
-* Output directories must exist and be writable
-* Database must be reachable at startup
-* Secrets should not be committed to version control
-
----
-
-## Typical Use Cases
-
-* Centralized Kafka log processing
-* Log-based alerting and monitoring
-* Persisting infrastructure metrics
-* Backend log analysis pipelines
+- Do not commit `consumer_config.json` to version control — it contains credentials
+- Kafka topics must exist before the application starts (or broker auto-creation must be enabled)
+- The database schema must be created manually before first run
+- The application does not expose any HTTP endpoints
 
 ---
 
 ## License
 
 Specify your license here (e.g. Internal, Proprietary, Apache 2.0).
-
----
-
-## Maintainer
-
-* **Project:** log-processor
-* **Runtime:** Java 8
-* **Build:** Maven
-
-```

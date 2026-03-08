@@ -75,6 +75,8 @@ public class KafkaConsumerFactory {
     }
 
     public Properties getConsumerProps() {
-        return consumerProps;
+        Properties copy = new Properties();
+        copy.putAll(consumerProps);
+        return copy;
     }
 }

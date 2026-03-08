@@ -55,6 +55,7 @@ public class AlertRepository {
 
         } catch (Exception e) {
             System.err.println("[DB ERROR] Failed to save alert: " + e.getMessage());
+            throw new RuntimeException("Alert DB save failed", e);
         }
     }
 }

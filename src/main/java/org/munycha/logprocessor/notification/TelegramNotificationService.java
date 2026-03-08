@@ -10,9 +10,20 @@ import java.nio.charset.StandardCharsets;
 
 public class TelegramNotificationService {
 
+    // Telegram allows 20 messages/minute to the same chat = 1 message per 3 seconds.
+    // Using 3s as the baseline avoids proactive 429s on group/channel chats.
+    private static final long BASE_SEND_INTERVAL_MS = 3_000;
+
+    // Adaptive backoff ceiling: do not wait longer than 60 seconds between sends.
+    private static final long MAX_SEND_INTERVAL_MS = 60_000;
+
     private final String botToken;
     private final String chatId;
     private long lastSend = 0;
+
+    // Tracks the current minimum interval between sends. Doubles on every 429,
+    // resets to baseline on every successful send.
+    private long minSendIntervalMs = BASE_SEND_INTERVAL_MS;
 
     public TelegramNotificationService(String botToken, String chatId) {
         this.botToken = botToken;
@@ -35,15 +46,16 @@ public class TelegramNotificationService {
 
                 sendRequest(message);
                 lastSend = System.currentTimeMillis();
+                // Reset adaptive backoff on success — the API is healthy again
+                minSendIntervalMs = BASE_SEND_INTERVAL_MS;
                 return;
 
             } catch (SocketTimeoutException e) {
 
-                System.err.println("[TelegramNotificationService] Timeout (attempt "
-                        + i + "/" + maxRetries + ")");
+                System.err.println("[Telegram] Timeout (attempt " + i + "/" + maxRetries + ")");
 
                 if (i == maxRetries) {
-                    System.err.println("[TelegramNotificationService] FAILED after retries, dropped.");
+                    System.err.println("[Telegram] FAILED after " + maxRetries + " timeouts, dropped.");
                     return;
                 }
 
@@ -51,26 +63,33 @@ public class TelegramNotificationService {
 
             } catch (RetryAfterException e) {
 
-                System.err.println("[TelegramNotificationService] 429 retry_after="
-                        + e.retryAfter + "s");
+                // Adaptive backoff: double the minimum send interval on every 429, up to the cap.
+                // This causes subsequent messages to be sent more slowly, preventing the next
+                // burst of alerts from immediately 429-ing again after the retry_after wait.
+                minSendIntervalMs = Math.min(minSendIntervalMs * 2, MAX_SEND_INTERVAL_MS);
+
+                System.err.println("[Telegram] 429 rate-limited, retry_after=" + e.retryAfter
+                        + "s — backing off, new interval=" + (minSendIntervalMs / 1000) + "s");
 
                 sleep(e.retryAfter * 1000L);
 
             } catch (Exception e) {
 
-                System.err.println("[TelegramNotificationService] Fatal error: "
-                        + e.getMessage());
+                System.err.println("[Telegram] Fatal error: " + e.getMessage());
                 return;
             }
         }
+
+        // Reached only when RetryAfterException exhausts all retries
+        System.err.println("[Telegram] FAILED after " + maxRetries + " attempts (persistent 429), dropped.");
     }
 
     private void enforceRateLimit() throws InterruptedException {
         long now = System.currentTimeMillis();
         long diff = now - lastSend;
 
-        if (diff < 1000) {
-            Thread.sleep(1000 - diff);
+        if (diff < minSendIntervalMs) {
+            Thread.sleep(minSendIntervalMs - diff);
         }
     }
 

@@ -6,16 +6,16 @@ import org.apache.kafka.clients.consumer.*;
 import org.apache.kafka.common.errors.WakeupException;
 import org.munycha.logprocessor.config.TopicType;
 import org.munycha.logprocessor.model.LogEvent;
-import org.munycha.logprocessor.model.DiskUsage;
 import org.munycha.logprocessor.model.ServerStorageSnapshot;
 import org.munycha.logprocessor.notification.TelegramNotificationService;
 import org.munycha.logprocessor.repository.AlertRepository;
-import org.munycha.logprocessor.repository.DiskUsageRepository;
 import org.munycha.logprocessor.repository.ServerStorageSnapshotRepository;
 
 import java.io.BufferedWriter;
 import java.io.FileWriter;
 import java.io.IOException;
+import java.io.StringWriter;
+import java.io.Writer;
 import java.nio.file.*;
 import java.time.*;
 import java.time.format.DateTimeFormatter;
@@ -25,25 +25,26 @@ import java.util.stream.Collectors;
 
 public class KafkaTopicConsumer implements Runnable {
 
+    // Cap Telegram alerts queued per poll batch — suppresses log storm flooding
+    private static final int MAX_TELEGRAM_ALERTS_PER_BATCH = 5;
+
+    // Fix C: create once — both are thread-safe and immutable
+    private static final DateTimeFormatter TIMESTAMP_FORMATTER =
+            DateTimeFormatter.ofPattern("yyyy-MM-dd HH:mm:ss");
+
     private final String topic;
     private final TopicType type;
     private final Path outputFile;
     private final Set<String> alertKeywords;
     private final AlertRepository alertRepository;
     private final ServerStorageSnapshotRepository storageSnapshotRepository;
-    private final DiskUsageRepository diskUsageRepository;
     private final KafkaConsumer<String, String> consumer;
     private final TelegramNotificationService notifier;
+    private final ExecutorService telegramAlertExecutor;
     private final ObjectMapper mapper = new ObjectMapper();
+    // Fix C: create once per consumer instance, not per record
+    private final ObjectWriter prettyWriter = mapper.writerWithDefaultPrettyPrinter();
     private volatile boolean running = true;
-
-    private final ExecutorService telegramAlertExecutor =
-            new ThreadPoolExecutor(
-                    1, 1,
-                    0L, TimeUnit.MILLISECONDS,
-                    new LinkedBlockingQueue<>(1000),
-                    new ThreadPoolExecutor.DiscardPolicy()
-            );
 
     public KafkaTopicConsumer(KafkaConsumerFactory consumerFactory,
                               String topic,
@@ -53,7 +54,7 @@ public class KafkaTopicConsumer implements Runnable {
                               List<String> alertKeywords,
                               AlertRepository alertRepository,
                               ServerStorageSnapshotRepository storageSnapshotRepository,
-                              DiskUsageRepository diskUsageRepository) {
+                              ExecutorService telegramAlertExecutor) {
 
         this.topic = topic;
         this.type = type;
@@ -69,7 +70,7 @@ public class KafkaTopicConsumer implements Runnable {
                         .collect(Collectors.toSet());
         this.alertRepository = alertRepository;
         this.storageSnapshotRepository = storageSnapshotRepository;
-        this.diskUsageRepository = diskUsageRepository;
+        this.telegramAlertExecutor = telegramAlertExecutor;
 
         this.consumer = consumerFactory.createConsumer();
         this.consumer.subscribe(Collections.singletonList(this.topic));
@@ -94,7 +95,7 @@ public class KafkaTopicConsumer implements Runnable {
 
         prepareOutputFile();
 
-        try (BufferedWriter writer =
+        try (BufferedWriter fileWriter =
                      new BufferedWriter(
                              new FileWriter(outputFile.toFile(), true),
                              64 * 1024
@@ -107,19 +108,26 @@ public class KafkaTopicConsumer implements Runnable {
 
                 boolean success = true;
                 List<LogEvent> telegramQueue = new ArrayList<>();
+
+                // Fix A: per-batch write buffer — created fresh each poll cycle.
+                // Handlers write into this StringWriter, NOT directly into the file.
+                // If any record fails, this buffer is simply discarded (goes out of scope)
+                // and the actual BufferedWriter stays clean — no duplicate lines on retry.
+                StringWriter batchBuffer = new StringWriter();
+
                 for (ConsumerRecord<String, String> record : records) {
 
                     try {
 
                         switch (type) {
                             case LOG:
-                                LogEvent alertEvent = handleLogRecord(record, writer);
-                                if (alertEvent != null) {
+                                LogEvent alertEvent = handleLogRecord(record, batchBuffer);
+                                if (alertEvent != null && telegramQueue.size() < MAX_TELEGRAM_ALERTS_PER_BATCH) {
                                     telegramQueue.add(alertEvent);
                                 }
                                 break;
                             case METRIC:
-                                handleMetricRecord(record, writer);
+                                handleMetricRecord(record, batchBuffer);
                                 break;
                         }
 
@@ -135,9 +143,13 @@ public class KafkaTopicConsumer implements Runnable {
                         break;
                     }
                 }
+
                 if (success) {
+                    // Fix A: write entire batch to the real file only after all records succeed.
+                    // Fix 1 (previous): flush file before committing Kafka offset.
+                    fileWriter.write(batchBuffer.toString());
+                    fileWriter.flush();
                     consumer.commitSync();
-                    writer.flush();
 
                     for (LogEvent ev : telegramQueue) {
                         sendTelegramAsync(ev);
@@ -155,22 +167,19 @@ public class KafkaTopicConsumer implements Runnable {
 
     // ===================== METRIC =====================
 
-    private void handleMetricRecord(ConsumerRecord<String, String> record, BufferedWriter writer) {
+    private void handleMetricRecord(ConsumerRecord<String, String> record, Writer batchBuffer) {
 
         try {
 
             ServerStorageSnapshot snapshot =
                     mapper.readValue(record.value(), ServerStorageSnapshot.class);
 
-            ObjectWriter pw = mapper.writerWithDefaultPrettyPrinter();
-            writer.write(pw.writeValueAsString(snapshot));
-            writer.write(System.lineSeparator());
+            batchBuffer.write(prettyWriter.writeValueAsString(snapshot));
+            batchBuffer.write(System.lineSeparator());
 
-            long id = storageSnapshotRepository.saveSnapshot(snapshot);
-
-            for (DiskUsage diskUsage : snapshot.getDiskUsages()) {
-                diskUsageRepository.savePath(id, diskUsage);
-            }
+            // Fix B: snapshot + all disk_usage rows saved in one DB transaction —
+            // no orphaned snapshot rows if any disk usage insert fails
+            storageSnapshotRepository.saveSnapshotWithDiskUsages(snapshot);
 
         } catch (Exception e) {
             throw new RuntimeException("Metric DB save failed", e);
@@ -185,7 +194,7 @@ public class KafkaTopicConsumer implements Runnable {
                 alertKeywords.stream().anyMatch(lowerMsg::contains);
     }
 
-    private LogEvent handleLogRecord(ConsumerRecord<String, String> record, BufferedWriter writer) {
+    private LogEvent handleLogRecord(ConsumerRecord<String, String> record, Writer batchBuffer) {
 
         try {
 
@@ -194,17 +203,16 @@ public class KafkaTopicConsumer implements Runnable {
             String msg = event.getMessage();
             String lower = msg.toLowerCase();
 
+            // Fix C: reuse static formatter — no allocation per record
             String formatted =
                     Instant.parse(event.getTimestamp())
                             .atZone(ZoneId.systemDefault())
-                            .format(DateTimeFormatter.ofPattern("yyyy-MM-dd HH:mm:ss"));
+                            .format(TIMESTAMP_FORMATTER);
 
-            writer.write(formatted + " [" + event.getServerName() + "] " +
+            batchBuffer.write(formatted + " [" + event.getServerName() + "] " +
                     msg + System.lineSeparator());
 
-            boolean alert = isAlert(lower);
-
-            if (alert) {
+            if (isAlert(lower)) {
                 saveAlert(event);
                 return event;
             }
@@ -233,10 +241,11 @@ public class KafkaTopicConsumer implements Runnable {
 
         telegramAlertExecutor.submit(() -> {
 
+            // Fix C: reuse static formatter
             String formatted =
                     Instant.parse(event.getTimestamp())
                             .atZone(ZoneId.systemDefault())
-                            .format(DateTimeFormatter.ofPattern("yyyy-MM-dd HH:mm:ss"));
+                            .format(TIMESTAMP_FORMATTER);
 
             String message =
                     "ALERT\nTime: " + formatted +
@@ -245,31 +254,15 @@ public class KafkaTopicConsumer implements Runnable {
                             "\nTopic: " + event.getTopic() +
                             "\nMessage: " + event.getMessage();
 
-            int retries = 3;
-
-            while (retries-- > 0) {
-                try {
-                    notifier.sendMessage(message);
-                    return;
-                } catch (Exception e) {
-                    try { Thread.sleep(3000); }
-                    catch (InterruptedException ignored) {}
-                }
-            }
+            notifier.sendMessage(message);
         });
     }
 
     // ===================== SHUTDOWN =====================
 
     public void shutdown() {
-
         running = false;
         consumer.wakeup();
-
-        telegramAlertExecutor.shutdown();
-
-        try {
-            telegramAlertExecutor.awaitTermination(5, TimeUnit.SECONDS);
-        } catch (InterruptedException ignored) {}
+        // telegramAlertExecutor is shared — LogProcessorApplication owns its lifecycle
     }
 }
