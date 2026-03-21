@@ -133,13 +133,16 @@ public class KafkaTopicConsumer implements Runnable {
 
                     } catch (Exception e) {
                         success = false;
+                        Throwable cause = e.getCause() != null ? e.getCause() : e;
                         System.err.printf(
-                                "[RETRY] topic=%s partition=%d offset=%d reason=%s%n",
+                                "[RETRY] topic=%s partition=%d offset=%d reason=%s cause=%s%n",
                                 record.topic(),
                                 record.partition(),
                                 record.offset(),
-                                e.getMessage()
+                                e.getMessage(),
+                                cause.getMessage()
                         );
+                        cause.printStackTrace(System.err);
                         break;
                     }
                 }
