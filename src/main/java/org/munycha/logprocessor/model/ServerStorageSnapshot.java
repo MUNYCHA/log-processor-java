@@ -11,7 +11,7 @@ public class ServerStorageSnapshot {
     private String serverName;
     private String serverIp;
     private String timestamp;
-    @JsonProperty("mountPathStorageUsages")
+    @JsonProperty("diskUsages")
     private List<DiskUsage> diskUsages;
 
     public ServerStorageSnapshot() {
