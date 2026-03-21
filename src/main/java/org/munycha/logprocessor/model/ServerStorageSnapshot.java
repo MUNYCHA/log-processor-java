@@ -1,6 +1,5 @@
 package org.munycha.logprocessor.model;
 
-import com.fasterxml.jackson.annotation.JsonProperty;
 
 import java.util.List;
 
@@ -11,7 +10,6 @@ public class ServerStorageSnapshot {
     private String serverName;
     private String serverIp;
     private String timestamp;
-    @JsonProperty("diskUsages")
     private List<DiskUsage> diskUsages;
 
     public ServerStorageSnapshot() {
