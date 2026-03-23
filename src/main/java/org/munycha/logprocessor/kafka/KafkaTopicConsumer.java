@@ -206,7 +206,7 @@ public class KafkaTopicConsumer implements Runnable {
             String msg = event.getMessage();
             String lower = msg.toLowerCase();
 
-            batchBuffer.write(prettyWriter.writeValueAsString(event));
+            batchBuffer.write(record.value());
             batchBuffer.write(System.lineSeparator());
 
             if (isAlert(lower)) {
