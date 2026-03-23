@@ -206,14 +206,8 @@ public class KafkaTopicConsumer implements Runnable {
             String msg = event.getMessage();
             String lower = msg.toLowerCase();
 
-            // Fix C: reuse static formatter — no allocation per record
-            String formatted =
-                    Instant.parse(event.getTimestamp())
-                            .atZone(ZoneId.systemDefault())
-                            .format(TIMESTAMP_FORMATTER);
-
-            batchBuffer.write(formatted + " [" + event.getServerName() + "] " +
-                    msg + System.lineSeparator());
+            batchBuffer.write(prettyWriter.writeValueAsString(event));
+            batchBuffer.write(System.lineSeparator());
 
             if (isAlert(lower)) {
                 saveAlert(event);
