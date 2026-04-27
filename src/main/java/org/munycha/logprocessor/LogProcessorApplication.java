@@ -6,6 +6,7 @@ import org.munycha.logprocessor.config.ConfigPathResolver;
 import org.munycha.logprocessor.config.TopicConfig;
 import org.munycha.logprocessor.kafka.KafkaConsumerFactory;
 import org.munycha.logprocessor.kafka.KafkaTopicConsumer;
+import org.munycha.logprocessor.notification.AlertAggregator;
 import org.munycha.logprocessor.notification.TelegramNotificationService;
 import org.munycha.logprocessor.repository.AlertRepository;
 import org.munycha.logprocessor.repository.ServerStorageSnapshotRepository;
@@ -19,12 +20,11 @@ public class LogProcessorApplication {
 
     public static void main(String[] args) throws Exception {
 
-        // Load config ONCE
         String configPath = ConfigPathResolver.resolve(
                 args,
-                "CONSUMER_CONFIG",            // ENV var
-                "consumer.config",            // JVM system property
-                "config/consumer_config.json" // classpath default
+                "CONSUMER_CONFIG",
+                "consumer.config",
+                "config/consumer_config.json"
         );
 
         System.out.println("[Config] Using config path: " + configPath);
@@ -32,19 +32,16 @@ public class LogProcessorApplication {
         ConfigLoader loader = new ConfigLoader(configPath);
         AppConfig config = loader.load();
 
-        // Initialize repositories
         AlertRepository alertRepository = new AlertRepository(config.getDatabase());
-        // Snapshot repository now handles disk_usage inserts in the same transaction
         ServerStorageSnapshotRepository storageSnapshotRepository =
                 new ServerStorageSnapshotRepository(config.getDatabase());
 
-        // Telegram notification service
         TelegramNotificationService notifier = new TelegramNotificationService(
                 config.getTelegramBotToken(), config.getTelegramChatId()
         );
 
-        // ONE shared single-threaded executor for all Telegram sends across all topics.
-        // One queue, one sender thread — prevents concurrent topics hammering the API.
+        // ONE shared single-threaded executor — all aggregators submit here so
+        // Telegram sends across all topics remain serialized on one thread.
         ExecutorService telegramAlertExecutor = new ThreadPoolExecutor(
                 1, 1,
                 0L, TimeUnit.MILLISECONDS,
@@ -52,39 +49,42 @@ public class LogProcessorApplication {
                 new ThreadPoolExecutor.DiscardPolicy()
         );
 
-        // One thread per topic
         ExecutorService consumerExecutor = Executors.newFixedThreadPool(config.getTopics().size());
 
-        // Create KafkaConsumerFactory ONCE
         KafkaConsumerFactory consumerFactory = new KafkaConsumerFactory(
                 config.getBootstrapServers(),
                 "file-log-consumer"
         );
 
-        // Keep references so shutdown() can be called on each consumer
         List<KafkaTopicConsumer> consumers = new ArrayList<>();
+        List<AlertAggregator> aggregators = new ArrayList<>();
 
-        // Start one KafkaTopicConsumer per topic
         for (TopicConfig t : config.getTopics()) {
+
+            long cooldownMs = TimeUnit.MINUTES.toMillis(t.getAlertCooldownMinutes());
+
+            AlertAggregator aggregator = new AlertAggregator(
+                    notifier,
+                    telegramAlertExecutor,
+                    cooldownMs,
+                    t.getAlertThresholdCount()
+            );
+            aggregators.add(aggregator);
+
             KafkaTopicConsumer consumer = new KafkaTopicConsumer(
                     consumerFactory,
                     t.getTopic(),
                     t.getType(),
                     Paths.get(t.getOutput()),
-                    notifier,
                     t.getAlertKeywords(),
                     alertRepository,
                     storageSnapshotRepository,
-                    telegramAlertExecutor
+                    aggregator
             );
             consumers.add(consumer);
             consumerExecutor.submit(consumer);
         }
 
-        // Graceful shutdown sequence:
-        //   1. signal each consumer (sets running=false, wakes up Kafka poll)
-        //   2. wait for consumer threads to finish their current batch and exit
-        //   3. drain the telegram queue so queued alerts are not silently discarded
         Runtime.getRuntime().addShutdownHook(new Thread(() -> {
             System.out.println("[Shutdown] Signalling consumers to stop...");
             for (KafkaTopicConsumer consumer : consumers) {
@@ -99,6 +99,11 @@ public class LogProcessorApplication {
                 }
             } catch (InterruptedException ignored) {
                 consumerExecutor.shutdownNow();
+            }
+
+            System.out.println("[Shutdown] Stopping aggregator schedulers...");
+            for (AlertAggregator aggregator : aggregators) {
+                aggregator.shutdown();
             }
 
             System.out.println("[Shutdown] Draining pending Telegram alerts...");

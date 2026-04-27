@@ -10,6 +10,8 @@ public class TopicConfig {
 
     // OPTIONAL (only used when type = LOG)
     private List<String> alertKeywords;
+    private int alertCooldownMinutes = 5;
+    private int alertThresholdCount = 100;
 
     public TopicConfig() {}
 
@@ -54,5 +56,21 @@ public class TopicConfig {
 
     public boolean hasAlertKeywords() {
         return alertKeywords != null && !alertKeywords.isEmpty();
+    }
+
+    public int getAlertCooldownMinutes() {
+        return alertCooldownMinutes;
+    }
+
+    public void setAlertCooldownMinutes(int alertCooldownMinutes) {
+        this.alertCooldownMinutes = alertCooldownMinutes;
+    }
+
+    public int getAlertThresholdCount() {
+        return alertThresholdCount;
+    }
+
+    public void setAlertThresholdCount(int alertThresholdCount) {
+        this.alertThresholdCount = alertThresholdCount;
     }
 }

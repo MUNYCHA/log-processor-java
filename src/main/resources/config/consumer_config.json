@@ -15,7 +15,9 @@
         "deadlock",
         "terminating connection",
         "could not"
-      ]
+      ],
+      "alertCooldownMinutes": 5,
+      "alertThresholdCount": 100
     },
     {
       "topic": "server-storage-snapshot",
