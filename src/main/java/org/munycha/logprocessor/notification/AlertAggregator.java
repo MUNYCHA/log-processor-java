@@ -56,10 +56,14 @@ public class AlertAggregator {
         boolean inCooldown = lastSent != null && (now - lastSent) < cooldownMs;
 
         if (!inCooldown) {
-            // First occurrence or cooldown expired — send instantly
             lastSentTime.put(fingerprint, now);
-            pending.remove(fingerprint);
-            submitTelegram(buildFirstMessage(event, matchedKeyword));
+            AlertGroup existing = pending.remove(fingerprint);
+            if (existing != null) {
+                existing.increment();
+                submitTelegram(buildStillFiringMessage(existing));
+            } else {
+                submitTelegram(buildFirstMessage(event, matchedKeyword));
+            }
             return;
         }
 
@@ -132,7 +136,7 @@ public class AlertAggregator {
                 "Count:   " + group.getCount() + " more since last notification\n" +
                 "First:   " + formatMs(group.getFirstSeenMs()) + "\n" +
                 "Last:    " + formatMs(group.getLastSeenMs()) + "\n" +
-                "Sample:  " + group.getSampleMessage();
+                "Message: " + group.getSampleMessage();
     }
 
     private String formatMs(long ms) {
