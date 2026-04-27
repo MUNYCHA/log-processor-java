@@ -12,17 +12,20 @@ import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
 import java.util.concurrent.ScheduledExecutorService;
 import java.util.concurrent.TimeUnit;
+import java.util.regex.Pattern;
 
 public class AlertAggregator {
 
     private static final DateTimeFormatter FORMATTER =
             DateTimeFormatter.ofPattern("yyyy-MM-dd HH:mm:ss");
     private static final int FLUSH_INTERVAL_SECONDS = 15;
+    private static final Pattern HAS_NUMBER = Pattern.compile(".*\\d+.*");
 
     private final TelegramNotificationService notifier;
     private final ExecutorService telegramExecutor;
     private final long cooldownMs;
     private final int thresholdCount;
+    private final DrainParser drain = new DrainParser();
 
     // fingerprint → accumulated group waiting to be sent
     private final Map<String, AlertGroup> pending = new HashMap<>();
@@ -110,7 +113,9 @@ public class AlertAggregator {
     }
 
     private String buildFingerprint(String keyword, LogEvent event) {
-        return keyword + "|" + event.getServerName() + "|" + event.getMessage();
+        String msg = event.getMessage();
+        String msgKey = HAS_NUMBER.matcher(msg).matches() ? drain.parseTemplate(msg) : msg;
+        return keyword + "|" + event.getServerName() + "|" + msgKey;
     }
 
     private String buildFirstMessage(LogEvent event, String matchedKeyword) {
