@@ -11,6 +11,9 @@ public class TopicConfig {
     // OPTIONAL (only used when type = LOG)
     private List<String> alertKeywords;
 
+    // OPTIONAL — if set, enables alert deduplication for this topic
+    private String patternStoreFile;
+
     public TopicConfig() {}
 
     public TopicConfig(String topic, TopicType type, String output, List<String> alertKeywords) {
@@ -54,5 +57,17 @@ public class TopicConfig {
 
     public boolean hasAlertKeywords() {
         return alertKeywords != null && !alertKeywords.isEmpty();
+    }
+
+    public String getPatternStoreFile() {
+        return patternStoreFile;
+    }
+
+    public void setPatternStoreFile(String patternStoreFile) {
+        this.patternStoreFile = patternStoreFile;
+    }
+
+    public boolean hasPatternStore() {
+        return patternStoreFile != null && !patternStoreFile.trim().isEmpty();
     }
 }

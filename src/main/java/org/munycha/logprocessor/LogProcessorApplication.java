@@ -10,6 +10,9 @@ import org.munycha.logprocessor.notification.TelegramNotificationService;
 import org.munycha.logprocessor.repository.AlertRepository;
 import org.munycha.logprocessor.repository.ServerStorageSnapshotRepository;
 
+import java.io.IOException;
+import java.nio.file.Files;
+import java.nio.file.Path;
 import java.nio.file.Paths;
 import java.util.ArrayList;
 import java.util.List;
@@ -43,6 +46,11 @@ public class LogProcessorApplication {
                 config.getTelegramBotToken(), config.getTelegramChatId()
         );
 
+        // Validate all configured paths exist and are writable before starting anything
+        for (TopicConfig t : config.getTopics()) {
+            validatePaths(t);
+        }
+
         // ONE shared single-threaded executor for all Telegram sends across all topics.
         // One queue, one sender thread — prevents concurrent topics hammering the API.
         ExecutorService telegramAlertExecutor = new ThreadPoolExecutor(
@@ -66,6 +74,10 @@ public class LogProcessorApplication {
 
         // Start one KafkaTopicConsumer per topic
         for (TopicConfig t : config.getTopics()) {
+            Path patternStoreFile = t.hasPatternStore()
+                    ? Paths.get(t.getPatternStoreFile())
+                    : null;
+
             KafkaTopicConsumer consumer = new KafkaTopicConsumer(
                     consumerFactory,
                     t.getTopic(),
@@ -75,7 +87,8 @@ public class LogProcessorApplication {
                     t.getAlertKeywords(),
                     alertRepository,
                     storageSnapshotRepository,
-                    telegramAlertExecutor
+                    telegramAlertExecutor,
+                    patternStoreFile
             );
             consumers.add(consumer);
             consumerExecutor.submit(consumer);
@@ -116,5 +129,24 @@ public class LogProcessorApplication {
         }));
 
         new CountDownLatch(1).await();
+    }
+
+    private static void validatePaths(TopicConfig t) throws IOException {
+        Path outputPath = Paths.get(t.getOutput());
+        if (!Files.isRegularFile(outputPath) || !Files.isWritable(outputPath)) {
+            throw new IOException(
+                    "[Startup] Output file does not exist or is not writable: " + t.getOutput()
+            );
+        }
+
+        if (t.hasPatternStore()) {
+            Path patternPath = Paths.get(t.getPatternStoreFile());
+            if (!Files.isRegularFile(patternPath) || !Files.isWritable(patternPath)) {
+                throw new IOException(
+                        "[Startup] Pattern store file does not exist or is not writable: " +
+                                t.getPatternStoreFile()
+                );
+            }
+        }
     }
 }

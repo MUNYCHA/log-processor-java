@@ -15,7 +15,8 @@
         "deadlock",
         "terminating connection",
         "could not"
-      ]
+      ],
+      "patternStoreFile": ""
     },
     {
       "topic": "server-storage-snapshot",
