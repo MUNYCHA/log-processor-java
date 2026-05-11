@@ -12,7 +12,7 @@
 | Maven | 3.6+ |
 | Apache Kafka | Reachable broker |
 | MySQL | 5.7+ or 8.x |
-| OS | Linux |
+| OS | Linux deployment paths are shown; any OS works if configured paths are valid |
 
 ---
 
@@ -137,10 +137,10 @@ The application is driven by a single JSON file.
 ### LOG
 
 - Each message is expected to be a JSON `LogEvent` with fields: `serverName`, `path`, `topic`, `timestamp`, `message`
-- Written to the output `.log` file as: `yyyy-MM-dd HH:mm:ss [serverName] message`
+- Written to the output `.log` file as the raw `message` field, one line per Kafka record
 - If any `alertKeywords` match the message (case-insensitive), the record is:
   - Saved to the `alert_logs` database table
-  - Sent as a Telegram notification
+  - Queued for a Telegram notification after the batch commits
 
 ### METRIC
 
@@ -158,9 +158,9 @@ The application is driven by a single JSON file.
 |---|---|
 | `id` | BIGINT (PK, auto-increment) |
 | `topic` | VARCHAR |
-| `timestamp` | DATETIME |
 | `server_name` | VARCHAR |
-| `path` | VARCHAR |
+| `file_path` | VARCHAR |
+| `event_timestamp` | DATETIME |
 | `message` | TEXT |
 
 ### `server_storage_snapshot`
@@ -190,17 +190,17 @@ The application is driven by a single JSON file.
 ## Runtime Behavior
 
 - One Kafka consumer thread per topic
-- Manual offset commit — offsets are committed only after the file write **and** DB save both succeed
+- Manual offset commit - offsets are committed after each successful poll batch is flushed to the output file and any required DB writes succeed
 - Up to 5 Telegram alerts queued per poll batch (prevents log-storm flooding)
 - Telegram sends are rate-limited to 1 per 3 seconds; adaptive backoff doubles the interval on each 429 response (up to 60 seconds), resets to baseline on success
 - Output directories are created automatically if they do not exist
-- Graceful shutdown on `CTRL+C`: consumers stop, in-flight Kafka commits complete, pending Telegram alerts are drained
+- Graceful shutdown on `CTRL+C`: consumers stop, in-flight Kafka commits complete, and the app waits briefly for queued Telegram alerts to drain
 
 ---
 
 ## Notes
 
-- Do not commit `consumer_config.json` to version control — it contains credentials
+- Do not put real credentials in committed config files. Keep the checked-in classpath `consumer_config.json` as a blank/template config
 - Kafka topics must exist before the application starts (or broker auto-creation must be enabled)
 - The database schema must be created manually before first run
 - The application does not expose any HTTP endpoints
