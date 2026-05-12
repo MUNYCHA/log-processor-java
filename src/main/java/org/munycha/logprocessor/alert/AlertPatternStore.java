@@ -3,19 +3,22 @@ package org.munycha.logprocessor.alert;
 import java.io.*;
 import java.nio.charset.StandardCharsets;
 import java.nio.file.*;
-import java.util.HashSet;
 import java.util.Set;
+import java.util.concurrent.ConcurrentHashMap;
 
 public class AlertPatternStore {
 
     private static final int WARN_THRESHOLD = 10_000;
+    private static final int MAX_WATCHER_RESTARTS = 5;
 
-    private final Set<String> knownPatterns = new HashSet<>();
+    private final Set<String> knownPatterns = ConcurrentHashMap.newKeySet();
+    private final Object lock = new Object();
     private final Path patternFile;
 
     public AlertPatternStore(Path patternFile) throws IOException {
         this.patternFile = patternFile;
         load();
+        startWatcher();
     }
 
     private void load() throws IOException {
@@ -32,32 +35,114 @@ public class AlertPatternStore {
                 " patterns from " + patternFile);
     }
 
+    private void reload() {
+        synchronized (lock) {
+            knownPatterns.clear();
+            if (!Files.exists(patternFile)) return;
+            try (BufferedReader reader = Files.newBufferedReader(patternFile, StandardCharsets.UTF_8)) {
+                String line;
+                while ((line = reader.readLine()) != null) {
+                    String trimmed = line.trim();
+                    if (!trimmed.isEmpty()) {
+                        knownPatterns.add(trimmed);
+                    }
+                }
+                System.out.println("[PatternStore] Reloaded " + knownPatterns.size() +
+                        " patterns from " + patternFile);
+            } catch (IOException e) {
+                System.err.println("[PatternStore] Reload failed: " + e.getMessage());
+            }
+        }
+    }
+
     public boolean isKnown(String pattern) {
         return knownPatterns.contains(pattern);
     }
 
     public void add(String pattern) {
-        knownPatterns.add(pattern);
+        synchronized (lock) {
+            knownPatterns.add(pattern);
+        }
 
-        // Open, append one line, close — no file handle held between writes
-        try (BufferedWriter writer = Files.newBufferedWriter(
-                patternFile,
-                StandardCharsets.UTF_8,
-                StandardOpenOption.WRITE,
-                StandardOpenOption.APPEND
-        )) {
-            writer.write(pattern);
-            writer.newLine();
-        } catch (IOException e) {
-            // Pattern is in memory — dedup works this run
-            // On restart this pattern won't reload — may fire once more
-            System.err.println("[PatternStore] Failed to persist pattern: " + e.getMessage());
+        if (Files.exists(patternFile)) {
+            try (BufferedWriter writer = Files.newBufferedWriter(
+                    patternFile,
+                    StandardCharsets.UTF_8,
+                    StandardOpenOption.WRITE,
+                    StandardOpenOption.APPEND
+            )) {
+                writer.write(pattern);
+                writer.newLine();
+            } catch (IOException e) {
+                System.err.println("[PatternStore] Failed to persist pattern: " + e.getMessage());
+            }
         }
 
         if (knownPatterns.size() == WARN_THRESHOLD) {
             System.err.println("[PatternStore] WARN: " + WARN_THRESHOLD +
                     " patterns accumulated. Normalization may be missing a variable token type: " +
                     patternFile);
+        }
+    }
+
+    private void startWatcher() {
+        Thread t = new Thread(() -> {
+            int attempts = 0;
+            while (attempts <= MAX_WATCHER_RESTARTS) {
+                try {
+                    runWatchLoop();
+                    break;
+                } catch (Exception e) {
+                    attempts++;
+                    if (attempts > MAX_WATCHER_RESTARTS) {
+                        System.err.println("[PatternStore] FATAL: watcher stopped after " +
+                                MAX_WATCHER_RESTARTS + " restarts — pattern resets require app restart. " +
+                                e.getMessage());
+                    } else {
+                        System.err.println("[PatternStore] WARN: watcher crashed (attempt " + attempts +
+                                "/" + MAX_WATCHER_RESTARTS + "), restarting in 2s. " + e.getMessage());
+                        try {
+                            Thread.sleep(2000);
+                        } catch (InterruptedException ie) {
+                            Thread.currentThread().interrupt();
+                            break;
+                        }
+                    }
+                }
+            }
+        });
+        t.setDaemon(true);
+        t.setName("pattern-store-watcher");
+        t.start();
+    }
+
+    private void runWatchLoop() throws IOException, InterruptedException {
+        Path dir = patternFile.getParent();
+        try (WatchService ws = FileSystems.getDefault().newWatchService()) {
+            dir.register(ws,
+                    StandardWatchEventKinds.ENTRY_MODIFY,
+                    StandardWatchEventKinds.ENTRY_DELETE,
+                    StandardWatchEventKinds.ENTRY_CREATE);
+
+            while (!Thread.currentThread().isInterrupted()) {
+                WatchKey key = ws.take();
+                for (WatchEvent<?> event : key.pollEvents()) {
+                    Path changed = (Path) event.context();
+                    if (!patternFile.getFileName().equals(changed)) continue;
+
+                    if (event.kind() == StandardWatchEventKinds.ENTRY_DELETE) {
+                        synchronized (lock) {
+                            knownPatterns.clear();
+                        }
+                        System.out.println("[PatternStore] File deleted — cleared all patterns");
+                    } else {
+                        reload();
+                    }
+                }
+                if (!key.reset()) {
+                    throw new IOException("Watch key invalidated — parent directory removed");
+                }
+            }
         }
     }
 }
