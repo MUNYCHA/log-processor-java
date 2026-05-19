@@ -1,0 +1,21 @@
+# JSON-embedded and key=value structured logs.
+
+{"level":"error","msg":"db down"}
+<JSON>
+
+# Even a different JSON payload collapses to the same <JSON> placeholder.
+{"level":"warn","msg":"slow query","duration_ms":1500}
+<JSON>
+
+Login failed for user=alice ip=10.0.0.1 retry=3
+login failed for user=<VAL> ip=<IP> retry=<N>
+
+Login failed for user=bob ip=10.0.0.2 retry=5
+login failed for user=<VAL> ip=<IP> retry=<N>
+
+Error processing request id=550e8400-e29b-41d4-a716-446655440000 path=/api/v1/users
+error processing request id=<UUID> path=<PATH>
+
+# Quoted value
+error="connection refused" code=503
+error=<STR> code=<N>

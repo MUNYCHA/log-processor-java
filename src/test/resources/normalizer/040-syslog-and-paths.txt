@@ -1,0 +1,24 @@
+# Syslog + path-heavy log lines.
+
+May 19 10:23:45 host1 sshd[1234]: Failed password for invalid user admin from 192.168.1.5
+<TS> host1 sshd[<N>]: failed password for invalid user admin from <IP>
+
+May 19 10:23:46 host1 sshd[5678]: Failed password for invalid user admin from 192.168.1.5
+<TS> host1 sshd[<N>]: failed password for invalid user admin from <IP>
+
+Failed to read /var/log/app/2026-05-19.log
+failed to read <PATH>
+
+Failed to read /var/log/app/2026-05-20.log
+failed to read <PATH>
+
+# Multi-segment paths collapse, embedded date is consumed by the path
+Failed to read /var/log/app/access.log
+failed to read <PATH>
+
+# Size + duration + percent
+Disk usage is 87% on /var (45GB used, took 250ms to scan)
+disk usage is <PCT> on /var (<SIZE> used, took <DUR> to scan)
+
+Disk usage is 92% on /var (50GB used, took 312ms to scan)
+disk usage is <PCT> on /var (<SIZE> used, took <DUR> to scan)

@@ -1,0 +1,28 @@
+# Negative cases — these MUST NOT over-collapse.
+# Each input asserts what the normalizer does NOT do.
+
+# 1. Hex-shaped English words have no digits — must stay as literal text.
+WARN deadbeef feedface accede are valid hex but pure-letter
+warn deadbeef feedface accede are valid hex but pure-letter
+
+# 2. Software names with embedded digits — digit is identifier-attached,
+# should not collapse to <N>.
+Reading apache2 log4j java8 nginx config
+reading apache2 log4j java8 nginx config
+
+# 3. Underscore-attached IDs — kept as identifiers; admin can add a
+# custom rule if they want these to collapse.
+Processing req_123 from svc_456
+processing req_123 from svc_456
+
+# 4. Real hex memory addresses (digit + letter, >=8 chars) DO collapse.
+Reading region 0xCAFEBABE at addr cafebabe1234
+reading region <HEX> at addr <HEX>
+
+# 5. Times of day standalone collapse to <TS>, but plain numeric ratios do not.
+Sync completed at 10:23:45
+sync completed at <TS>
+
+# 6. Multiple separators around numbers
+Counters: 12, 34, 567 active
+counters: <N>, <N>, <N> active

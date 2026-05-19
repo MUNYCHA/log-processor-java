@@ -1,0 +1,29 @@
+# Format: lines come in pairs.
+#   Odd line = raw log message (input).
+#   Even line that follows = expected normalized output.
+# Blank lines and lines starting with # are ignored.
+
+Exception in thread "main" java.lang.NullPointerException
+exception in thread <STR> java.lang.nullpointerexception
+
+at com.foo.Bar.process(Bar.java:42)
+at com.foo.bar.process(<FILE>:<LINE>)
+
+# Same trace with a different line number must collapse to the same pattern.
+at com.foo.Bar.process(Bar.java:99)
+at com.foo.bar.process(<FILE>:<LINE>)
+
+Caused by: java.io.IOException: Stream closed
+caused by: java.io.ioexception: stream closed
+
+# JVM synthetic lambdas — the $N suffix and 0x address are runtime-generated,
+# so two different JVM runs of the same code must collapse to the same pattern.
+at com.foo.Bar$$Lambda$123/0x000000080104a040.run(Bar.java:11)
+at com.foo.bar$$lambda$<N>/<HEX>.run(<FILE>:<LINE>)
+
+at com.foo.Bar$$Lambda$456/0x00007fcafedeadbe.run(Bar.java:11)
+at com.foo.bar$$lambda$<N>/<HEX>.run(<FILE>:<LINE>)
+
+# Kotlin stack frame
+at MyClass.method$lambda$0(MyClass.kt:42)
+at myclass.method$lambda$<N>(<FILE>:<LINE>)

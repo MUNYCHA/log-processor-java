@@ -6,6 +6,7 @@ import org.munycha.logprocessor.config.ConfigPathResolver;
 import org.munycha.logprocessor.config.TopicConfig;
 import org.munycha.logprocessor.kafka.KafkaConsumerFactory;
 import org.munycha.logprocessor.kafka.KafkaTopicConsumer;
+import org.munycha.logprocessor.normalizer.LogMessageNormalizer;
 import org.munycha.logprocessor.notification.TelegramNotificationService;
 import org.munycha.logprocessor.repository.AlertRepository;
 import org.munycha.logprocessor.repository.ServerStorageSnapshotRepository;
@@ -78,6 +79,8 @@ public class LogProcessorApplication {
                     ? Paths.get(t.getPatternStoreFile())
                     : null;
 
+            LogMessageNormalizer normalizer = buildNormalizer(t);
+
             KafkaTopicConsumer consumer = new KafkaTopicConsumer(
                     consumerFactory,
                     t.getTopic(),
@@ -88,7 +91,8 @@ public class LogProcessorApplication {
                     alertRepository,
                     storageSnapshotRepository,
                     telegramAlertExecutor,
-                    patternStoreFile
+                    patternStoreFile,
+                    normalizer
             );
             consumers.add(consumer);
             consumerExecutor.submit(consumer);
@@ -129,6 +133,18 @@ public class LogProcessorApplication {
         }));
 
         new CountDownLatch(1).await();
+    }
+
+    private static LogMessageNormalizer buildNormalizer(TopicConfig t) {
+        if (!t.hasCustomNormalizationRules()) {
+            return new LogMessageNormalizer();
+        }
+        List<LogMessageNormalizer.Rule> rules = new ArrayList<>();
+        for (TopicConfig.NormalizationRule r : t.getCustomNormalizationRules()) {
+            if (r.getPattern() == null || r.getReplacement() == null) continue;
+            rules.add(new LogMessageNormalizer.Rule(r.getPattern(), r.getReplacement()));
+        }
+        return new LogMessageNormalizer(rules);
     }
 
     private static void validatePaths(TopicConfig t) throws IOException {

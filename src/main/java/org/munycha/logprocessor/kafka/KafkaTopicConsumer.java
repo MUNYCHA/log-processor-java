@@ -47,6 +47,9 @@ public class KafkaTopicConsumer implements Runnable {
     // null when patternStoreFile is not configured — dedup disabled for this topic
     private final AlertPatternStore patternStore;
 
+    // Per-topic normalizer instance — carries this topic's custom rules
+    private final LogMessageNormalizer normalizer;
+
     private volatile boolean running = true;
 
     public KafkaTopicConsumer(KafkaConsumerFactory consumerFactory,
@@ -58,7 +61,8 @@ public class KafkaTopicConsumer implements Runnable {
                               AlertRepository alertRepository,
                               ServerStorageSnapshotRepository storageSnapshotRepository,
                               ExecutorService telegramAlertExecutor,
-                              Path patternStoreFile) throws IOException {
+                              Path patternStoreFile,
+                              LogMessageNormalizer normalizer) throws IOException {
 
         this.topic = topic;
         this.type = type;
@@ -76,6 +80,7 @@ public class KafkaTopicConsumer implements Runnable {
         this.storageSnapshotRepository = storageSnapshotRepository;
         this.telegramAlertExecutor = telegramAlertExecutor;
         this.patternStore = patternStoreFile != null ? new AlertPatternStore(patternStoreFile) : null;
+        this.normalizer = normalizer != null ? normalizer : new LogMessageNormalizer();
 
         this.consumer = consumerFactory.createConsumer();
         this.consumer.subscribe(Collections.singletonList(this.topic));
@@ -202,7 +207,7 @@ public class KafkaTopicConsumer implements Runnable {
             }
 
             if (patternStore != null) {
-                String pattern = LogMessageNormalizer.normalize(msg);
+                String pattern = normalizer.normalizeMessage(msg);
 
                 if (patternStore.isKnown(pattern)) {
                     System.out.println("[SUPPRESSED] pattern already known: " + pattern);

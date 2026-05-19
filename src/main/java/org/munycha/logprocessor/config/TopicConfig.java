@@ -14,6 +14,11 @@ public class TopicConfig {
     // OPTIONAL — if set, enables alert deduplication for this topic
     private String patternStoreFile;
 
+    // OPTIONAL — per-topic regex replacement rules applied BEFORE the
+    // built-in normalizer. Lets operators handle app-specific tokens
+    // (e.g. "worker-\d+" → "<WORKER>") without modifying core code.
+    private List<NormalizationRule> customNormalizationRules;
+
     public TopicConfig() {}
 
     public TopicConfig(String topic, TopicType type, String output, List<String> alertKeywords) {
@@ -69,5 +74,35 @@ public class TopicConfig {
 
     public boolean hasPatternStore() {
         return patternStoreFile != null && !patternStoreFile.trim().isEmpty();
+    }
+
+    public List<NormalizationRule> getCustomNormalizationRules() {
+        return customNormalizationRules;
+    }
+
+    public void setCustomNormalizationRules(List<NormalizationRule> customNormalizationRules) {
+        this.customNormalizationRules = customNormalizationRules;
+    }
+
+    public boolean hasCustomNormalizationRules() {
+        return customNormalizationRules != null && !customNormalizationRules.isEmpty();
+    }
+
+    /** Per-topic regex replacement rule (deserialized from JSON config). */
+    public static class NormalizationRule {
+        private String pattern;
+        private String replacement;
+
+        public NormalizationRule() {}
+
+        public NormalizationRule(String pattern, String replacement) {
+            this.pattern = pattern;
+            this.replacement = replacement;
+        }
+
+        public String getPattern() { return pattern; }
+        public void setPattern(String pattern) { this.pattern = pattern; }
+        public String getReplacement() { return replacement; }
+        public void setReplacement(String replacement) { this.replacement = replacement; }
     }
 }

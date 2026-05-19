@@ -1,0 +1,18 @@
+# Apache CLF + nginx access/error log samples.
+
+192.168.1.1 - - [19/May/2026:10:23:45 +0000] "GET /index.html HTTP/1.1" 200 1234
+<IP> - - [<TS>] <STR> <N> <N>
+
+# Different IP, different timestamp, different size — same pattern.
+10.0.0.5 - - [20/May/2026:11:00:01 +0000] "GET /about.html HTTP/1.1" 200 9999
+<IP> - - [<TS>] <STR> <N> <N>
+
+# Authenticated user — the username stays literal (different users => different patterns).
+10.0.0.5 - alice [19/May/2026:10:24:01 +0000] "POST /api/users HTTP/1.1" 201 456
+<IP> - alice [<TS>] <STR> <N> <N>
+
+2026/05/19 10:23:45 [error] 12345#0: *67890 upstream timed out
+<TS> [error] <N>#<N>: *<N> upstream timed out
+
+2026/05/19 10:23:46 [error] 99999#0: *11111 upstream timed out
+<TS> [error] <N>#<N>: *<N> upstream timed out
