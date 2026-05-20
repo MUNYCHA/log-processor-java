@@ -10,6 +10,8 @@ import org.munycha.logprocessor.normalizer.LogMessageNormalizer;
 import org.munycha.logprocessor.notification.TelegramNotificationService;
 import org.munycha.logprocessor.repository.AlertRepository;
 import org.munycha.logprocessor.repository.ServerStorageSnapshotRepository;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 
 import java.io.IOException;
 import java.nio.file.Files;
@@ -21,6 +23,8 @@ import java.util.concurrent.*;
 
 public class LogProcessorApplication {
 
+    private static final Logger log = LoggerFactory.getLogger(LogProcessorApplication.class);
+
     public static void main(String[] args) throws Exception {
 
         // Load config ONCE
@@ -31,7 +35,7 @@ public class LogProcessorApplication {
                 "config/consumer_config.json" // classpath default
         );
 
-        System.out.println("[Config] Using config path: " + configPath);
+        log.info("Using config path: {}", configPath);
 
         ConfigLoader loader = new ConfigLoader(configPath);
         AppConfig config = loader.load();
@@ -103,7 +107,7 @@ public class LogProcessorApplication {
         //   2. wait for consumer threads to finish their current batch and exit
         //   3. drain the telegram queue so queued alerts are not silently discarded
         Runtime.getRuntime().addShutdownHook(new Thread(() -> {
-            System.out.println("[Shutdown] Signalling consumers to stop...");
+            log.info("Signalling consumers to stop...");
             for (KafkaTopicConsumer consumer : consumers) {
                 consumer.shutdown();
             }
@@ -111,25 +115,25 @@ public class LogProcessorApplication {
             consumerExecutor.shutdown();
             try {
                 if (!consumerExecutor.awaitTermination(15, TimeUnit.SECONDS)) {
-                    System.err.println("[Shutdown] Consumer threads did not stop in time, forcing.");
+                    log.warn("Consumer threads did not stop in time, forcing.");
                     consumerExecutor.shutdownNow();
                 }
             } catch (InterruptedException ignored) {
                 consumerExecutor.shutdownNow();
             }
 
-            System.out.println("[Shutdown] Draining pending Telegram alerts...");
+            log.info("Draining pending Telegram alerts...");
             telegramAlertExecutor.shutdown();
             try {
                 if (!telegramAlertExecutor.awaitTermination(30, TimeUnit.SECONDS)) {
-                    System.err.println("[Shutdown] Telegram executor did not drain in time, forcing.");
+                    log.warn("Telegram executor did not drain in time, forcing.");
                     telegramAlertExecutor.shutdownNow();
                 }
             } catch (InterruptedException ignored) {
                 telegramAlertExecutor.shutdownNow();
             }
 
-            System.out.println("[Shutdown] Complete.");
+            log.info("Shutdown complete.");
         }));
 
         new CountDownLatch(1).await();

@@ -1,6 +1,8 @@
 package org.munycha.logprocessor.repository;
 
 import org.munycha.logprocessor.config.DatabaseConfig;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 
 import java.sql.Connection;
 import java.sql.DriverManager;
@@ -9,6 +11,8 @@ import java.sql.Timestamp;
 import java.time.Instant;
 
 public class AlertRepository {
+
+    private static final Logger log = LoggerFactory.getLogger(AlertRepository.class);
 
     private final String url;
     private final String user;
@@ -54,7 +58,7 @@ public class AlertRepository {
             stmt.executeUpdate();
 
         } catch (Exception e) {
-            System.err.println("[DB ERROR] Failed to save alert: " + e.getMessage());
+            log.error("Failed to save alert: {}", e.getMessage(), e);
             throw new RuntimeException("Alert DB save failed", e);
         }
     }

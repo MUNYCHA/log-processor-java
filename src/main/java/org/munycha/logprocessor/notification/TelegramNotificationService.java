@@ -1,5 +1,8 @@
 package org.munycha.logprocessor.notification;
 
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
+
 import javax.net.ssl.HttpsURLConnection;
 import java.io.IOException;
 import java.io.InputStream;
@@ -9,6 +12,8 @@ import java.net.URL;
 import java.nio.charset.StandardCharsets;
 
 public class TelegramNotificationService {
+
+    private static final Logger log = LoggerFactory.getLogger(TelegramNotificationService.class);
 
     // Telegram allows 20 messages/minute to the same chat = 1 message per 3 seconds.
     // Using 3s as the baseline avoids proactive 429s on group/channel chats.
@@ -52,10 +57,10 @@ public class TelegramNotificationService {
 
             } catch (SocketTimeoutException e) {
 
-                System.err.println("[Telegram] Timeout (attempt " + i + "/" + maxRetries + ")");
+                log.warn("Timeout (attempt {}/{})", i, maxRetries);
 
                 if (i == maxRetries) {
-                    System.err.println("[Telegram] FAILED after " + maxRetries + " timeouts, dropped.");
+                    log.error("FAILED after {} timeouts, dropped.", maxRetries);
                     return;
                 }
 
@@ -68,20 +73,20 @@ public class TelegramNotificationService {
                 // burst of alerts from immediately 429-ing again after the retry_after wait.
                 minSendIntervalMs = Math.min(minSendIntervalMs * 2, MAX_SEND_INTERVAL_MS);
 
-                System.err.println("[Telegram] 429 rate-limited, retry_after=" + e.retryAfter
-                        + "s — backing off, new interval=" + (minSendIntervalMs / 1000) + "s");
+                log.warn("429 rate-limited, retry_after={}s — backing off, new interval={}s",
+                        e.retryAfter, minSendIntervalMs / 1000);
 
                 sleep(e.retryAfter * 1000L);
 
             } catch (Exception e) {
 
-                System.err.println("[Telegram] Fatal error: " + e.getMessage());
+                log.error("Fatal error: {}", e.getMessage(), e);
                 return;
             }
         }
 
         // Reached only when RetryAfterException exhausts all retries
-        System.err.println("[Telegram] FAILED after " + maxRetries + " attempts (persistent 429), dropped.");
+        log.error("FAILED after {} attempts (persistent 429), dropped.", maxRetries);
     }
 
     private void enforceRateLimit() throws InterruptedException {

@@ -4,6 +4,8 @@ import com.fasterxml.jackson.databind.ObjectMapper;
 import com.fasterxml.jackson.databind.ObjectWriter;
 import org.apache.kafka.clients.consumer.*;
 import org.apache.kafka.common.errors.WakeupException;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 import org.munycha.logprocessor.alert.AlertPatternStore;
 import org.munycha.logprocessor.config.TopicType;
 import org.munycha.logprocessor.model.LogEvent;
@@ -26,6 +28,8 @@ import java.util.concurrent.*;
 import java.util.stream.Collectors;
 
 public class KafkaTopicConsumer implements Runnable {
+
+    private static final Logger log = LoggerFactory.getLogger(KafkaTopicConsumer.class);
 
     private static final int MAX_TELEGRAM_ALERTS_PER_BATCH = 5;
 
@@ -120,15 +124,13 @@ public class KafkaTopicConsumer implements Runnable {
                     } catch (Exception e) {
                         success = false;
                         Throwable cause = e.getCause() != null ? e.getCause() : e;
-                        System.err.printf(
-                                "[RETRY] topic=%s partition=%d offset=%d reason=%s cause=%s%n",
+                        log.warn("Retry triggered: topic={} partition={} offset={} reason={} cause={}",
                                 record.topic(),
                                 record.partition(),
                                 record.offset(),
                                 e.getMessage(),
-                                cause.getMessage()
-                        );
-                        cause.printStackTrace(System.err);
+                                cause.getMessage(),
+                                cause);
                         break;
                     }
                 }
@@ -157,7 +159,7 @@ public class KafkaTopicConsumer implements Runnable {
 
         } catch (WakeupException ignored) {
         } catch (IOException e) {
-            System.err.println("[ERROR] Writer failure: " + e.getMessage());
+            log.error("Writer failure: {}", e.getMessage(), e);
         } finally {
             consumer.close();
         }
@@ -210,7 +212,7 @@ public class KafkaTopicConsumer implements Runnable {
                 String pattern = normalizer.normalizeMessage(msg);
 
                 if (patternStore.isKnown(pattern)) {
-                    System.out.println("[SUPPRESSED] pattern already known: " + pattern);
+                    log.debug("Suppressed: pattern already known: {}", pattern);
                     return null;
                 }
 

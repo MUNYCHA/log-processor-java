@@ -1,5 +1,8 @@
 package org.munycha.logprocessor.alert;
 
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
+
 import java.io.*;
 import java.nio.charset.StandardCharsets;
 import java.nio.file.*;
@@ -7,6 +10,8 @@ import java.util.Set;
 import java.util.concurrent.ConcurrentHashMap;
 
 public class AlertPatternStore {
+
+    private static final Logger log = LoggerFactory.getLogger(AlertPatternStore.class);
 
     private static final int WARN_THRESHOLD = 10_000;
     private static final int MAX_WATCHER_RESTARTS = 5;
@@ -33,8 +38,7 @@ public class AlertPatternStore {
                 }
             }
         }
-        System.out.println("[PatternStore] Loaded " + knownPatterns.size() +
-                " patterns from " + patternFile);
+        log.info("Loaded {} patterns from {}", knownPatterns.size(), patternFile);
     }
 
     private void reload() {
@@ -53,10 +57,9 @@ public class AlertPatternStore {
                     }
                 }
                 knownPatterns = next;
-                System.out.println("[PatternStore] Reloaded " + knownPatterns.size() +
-                        " patterns from " + patternFile);
+                log.info("Reloaded {} patterns from {}", knownPatterns.size(), patternFile);
             } catch (IOException e) {
-                System.err.println("[PatternStore] Reload failed, keeping previous patterns: " + e.getMessage());
+                log.warn("Reload failed, keeping previous patterns: {}", e.getMessage());
             }
         }
     }
@@ -80,14 +83,13 @@ public class AlertPatternStore {
                 writer.write(pattern);
                 writer.newLine();
             } catch (IOException e) {
-                System.err.println("[PatternStore] Failed to persist pattern: " + e.getMessage());
+                log.warn("Failed to persist pattern: {}", e.getMessage());
             }
         }
 
         if (knownPatterns.size() == WARN_THRESHOLD) {
-            System.err.println("[PatternStore] WARN: " + WARN_THRESHOLD +
-                    " patterns accumulated. Normalization may be missing a variable token type: " +
-                    patternFile);
+            log.warn("{} patterns accumulated. Normalization may be missing a variable token type: {}",
+                    WARN_THRESHOLD, patternFile);
         }
     }
 
@@ -105,28 +107,27 @@ public class AlertPatternStore {
                     Path dir = patternFile.getParent();
 
                     if (dir == null) {
-                        System.err.println("[PatternStore] FATAL: pattern file has no parent directory, cannot watch: " + patternFile);
+                        log.error("FATAL: pattern file has no parent directory, cannot watch: {}", patternFile);
                         break;
                     }
 
                     if (!Files.exists(dir)) {
-                        System.err.println("[PatternStore] WARN: watched directory gone, waiting for it to return: " + dir);
+                        log.warn("Watched directory gone, waiting for it to return: {}", dir);
                         if (waitForDirectory(dir)) {
-                            System.out.println("[PatternStore] Directory returned, restarting watcher: " + dir);
+                            log.info("Directory returned, restarting watcher: {}", dir);
                             // not a crash — don't increment crashCount
                         } else {
-                            System.err.println("[PatternStore] FATAL: watched directory did not return after 2 minutes — pattern resets require app restart.");
+                            log.error("FATAL: watched directory did not return after 2 minutes — pattern resets require app restart.");
                             break;
                         }
                     } else {
                         crashCount++;
                         if (crashCount > MAX_WATCHER_RESTARTS) {
-                            System.err.println("[PatternStore] FATAL: watcher stopped after " +
-                                    MAX_WATCHER_RESTARTS + " restarts — pattern resets require app restart. " +
-                                    e.getMessage());
+                            log.error("FATAL: watcher stopped after {} restarts — pattern resets require app restart.",
+                                    MAX_WATCHER_RESTARTS, e);
                         } else {
-                            System.err.println("[PatternStore] WARN: watcher crashed (attempt " + crashCount +
-                                    "/" + MAX_WATCHER_RESTARTS + "), restarting in 2s. " + e.getMessage());
+                            log.warn("Watcher crashed (attempt {}/{}), restarting in 2s: {}",
+                                    crashCount, MAX_WATCHER_RESTARTS, e.getMessage());
                             try {
                                 Thread.sleep(2000);
                             } catch (InterruptedException ie) {
@@ -152,8 +153,8 @@ public class AlertPatternStore {
                 return false;
             }
             if (Files.exists(dir)) return true;
-            System.err.println("[PatternStore] WARN: still waiting for directory to return (" +
-                    (i + 1) + "/" + DIR_POLL_MAX_ATTEMPTS + "): " + dir);
+            log.warn("Still waiting for directory to return ({}/{}): {}",
+                    i + 1, DIR_POLL_MAX_ATTEMPTS, dir);
         }
         return false;
     }
@@ -176,7 +177,7 @@ public class AlertPatternStore {
                         synchronized (lock) {
                             knownPatterns = ConcurrentHashMap.newKeySet();
                         }
-                        System.out.println("[PatternStore] File deleted — cleared all patterns");
+                        log.info("File deleted — cleared all patterns");
                     } else {
                         reload();
                     }

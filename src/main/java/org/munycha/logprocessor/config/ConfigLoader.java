@@ -1,10 +1,14 @@
 package org.munycha.logprocessor.config;
 
 import com.fasterxml.jackson.databind.ObjectMapper;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 
 import java.io.*;
 
 public class ConfigLoader {
+
+    private static final Logger log = LoggerFactory.getLogger(ConfigLoader.class);
 
     private final String filePath;
 
@@ -31,9 +35,7 @@ public class ConfigLoader {
                 getClass().getClassLoader().getResourceAsStream(filePath);
 
         if (internalStream != null) {
-            System.out.println(
-                    "[ConfigLoader] External config not found, using INTERNAL config: " + filePath
-            );
+            log.info("External config not found, using INTERNAL config: {}", filePath);
             return internalStream;
         }
 

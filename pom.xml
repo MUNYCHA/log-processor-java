@@ -26,11 +26,11 @@
             <version>2.13.5</version>
         </dependency>
 
-        <!-- SLF4J simple -->
+        <!-- Logback (brings slf4j-api transitively, Java 8 compatible) -->
         <dependency>
-            <groupId>org.slf4j</groupId>
-            <artifactId>slf4j-simple</artifactId>
-            <version>1.7.36</version>
+            <groupId>ch.qos.logback</groupId>
+            <artifactId>logback-classic</artifactId>
+            <version>1.2.13</version>
         </dependency>
 
         <!-- MySQL JDBC Driver (Java 8 compatible) -->
