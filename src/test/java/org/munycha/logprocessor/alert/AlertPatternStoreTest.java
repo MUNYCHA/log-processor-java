@@ -19,6 +19,10 @@ class AlertPatternStoreTest {
 
     private static final long WATCH_TIMEOUT_MS = 15_000;
     private static final long POLL_INTERVAL_MS = 100;
+    // Give the watcher thread time to call dir.register() before we modify
+    // the file. The constructor returns before registration completes, so
+    // any modification fired in that window is dropped by inotify.
+    private static final long WATCHER_REGISTER_DELAY_MS = 500;
 
     @Test
     void loadsExistingPatternsFromFile(@TempDir Path tmp) throws IOException {
@@ -78,6 +82,8 @@ class AlertPatternStoreTest {
         AlertPatternStore store = new AlertPatternStore(file);
         assertTrue(store.isKnown("old-pattern"));
 
+        Thread.sleep(WATCHER_REGISTER_DELAY_MS);
+
         // External edit: replace contents with a new pattern.
         Files.write(file, Arrays.asList("new-pattern"), StandardCharsets.UTF_8);
 
@@ -94,6 +100,8 @@ class AlertPatternStoreTest {
 
         AlertPatternStore store = new AlertPatternStore(file);
         assertTrue(store.isKnown("X"));
+
+        Thread.sleep(WATCHER_REGISTER_DELAY_MS);
 
         // Truncate the file.
         Files.write(file, new byte[0]);
