@@ -147,6 +147,7 @@ The application is driven by a single JSON file.
 | `output` | Yes | Absolute path to the output file — must exist before app starts |
 | `alertKeywords` | No | Keywords that trigger an alert (LOG topics only, case-insensitive) |
 | `patternStoreFile` | No | Absolute path to the pattern store file for alert deduplication (LOG topics only) — must exist before app starts |
+| `customNormalizationRules` | No | Array of `{pattern, replacement}` regex rules applied **before** the built-in normalizer (LOG topics only). Use to collapse app-specific tokens, e.g. `[{"pattern":"worker-\\d+","replacement":"<WORKER>"}]` |
 
 ---
 
@@ -172,23 +173,36 @@ When `patternStoreFile` is set for a LOG topic, the app deduplicates alerts by l
 
 ### How it works
 
-On each alert, the message is normalized into a pattern by replacing variable tokens with placeholders:
+On each alert, the message is normalized into a pattern by replacing variable tokens with placeholders. The normalizer prefers precision over recall — an unknown token stays as a literal word rather than getting collapsed by an aggressive catch-all, because dedup is "alert once forever" and a false merge would silently silence a real alert.
 
-| Token type | Example input | Normalized |
+| Category | Example input | Placeholder |
 |---|---|---|
-| UUID | `550e8400-e29b-41d4-a716` | `<UUID>` |
-| IP with port | `192.168.1.5:5432` | `<IP>:<PORT>` |
-| IP | `192.168.1.5` | `<IP>` |
-| Hex (0x prefix) | `0xdeadbeef` | `<HEX>` |
-| Bare hex (8+ chars) | `deadbeef1234` | `<HEX>` |
-| key=value pair | `host=db-server` | `host=<VAL>` |
-| Token starting with digit | `30s`, `95%`, `2048MB` | `<TOKEN>` |
+| Timestamp (ISO, Apache CLF, syslog, bare date or time, bracketed `[..]`) | `2026-05-19T10:23:45.123Z`, `19/May/2026:10:23:45 +0000`, `10:23:45` | `<TS>` |
+| URL | `https://api.example.com/v1?x=1` | `<URL>` |
+| Email | `alice@example.com` | `<EMAIL>` |
+| Java stack frame | `(Service.java:142)` | `(<FILE>:<LINE>)` |
+| UUID | `550e8400-e29b-41d4-a716-446655440000` | `<UUID>` |
+| MAC address | `aa:bb:cc:dd:ee:ff` | `<MAC>` |
+| Hex (`0x…` or bare 8+ chars with both digits and letters) | `0xdeadbeef`, `cafebabe1234` | `<HEX>` |
+| IPv4 with port | `192.168.1.5:5432` | `<IP>:<PORT>` |
+| IPv4 | `192.168.1.5` | `<IP>` |
+| IPv6 (whole-token predicate) | `fe80::1ff:fe23:4567:890a` | `<IP6>` |
+| Filesystem path (Unix or Windows) | `/var/log/app.log`, `C:\Program Files\foo` | `<PATH>` |
+| Size with unit | `45GB`, `2048MiB` | `<SIZE>` |
+| Duration with unit | `30s`, `1500ms` | `<DUR>` |
+| Percent | `87%` | `<PCT>` |
+| Bare number (last numeric fallback) | `9876` | `<N>` |
+| Quoted string | `"primary database"` | `<STR>` |
+| Balanced JSON object | `{"a":1,"b":[2,3]}` | `<JSON>` |
+| Bracketed array | `[1, 2, 3]` | `<ARR>` |
+| `key=value` (plain-text value) | `host=db-server` | `host=<VAL>` |
+| `key=value` (value is itself a placeholder) | `pid=9876` after Pass 1a becomes `pid=<N>` | `pid=<N>` |
 
-The result is lowercased and whitespace-normalized. Example:
+Non-placeholder text is lowercased; placeholders keep their `<UPPERCASE>` form. Whitespace is collapsed during tokenization. Example:
 
 ```
 Input:   could not connect to 192.168.1.5:5432 after 30s retries=3
-Pattern: could not connect to <IP>:<PORT> after <TOKEN> retries=<VAL>
+Pattern: could not connect to <IP>:<PORT> after <DUR> retries=<N>
 ```
 
 ### Deduplication behavior
@@ -201,14 +215,16 @@ Pattern: could not connect to <IP>:<PORT> after <TOKEN> retries=<VAL>
 
 ### Resetting suppressed alerts
 
-To allow a suppressed alert pattern to fire again, clear or edit `patternStoreFile` on the server and restart the app:
+The pattern store file is watched at runtime via `WatchService`. Editing or clearing it causes the in-memory pattern set to reload atomically — **no app restart needed**. The swap is done by building the new set off to the side and assigning it in one pointer-write, so concurrent alerts always see either the full old set or the full new set, never a half-loaded one.
 
 ```bash
-# Clear all suppressed patterns
+# Clear all suppressed patterns — the running app picks this up within seconds
 > /data/patterns/app-logs.txt
 
-# Restart the app to reload the now-empty pattern store
+# Or selectively remove specific patterns by editing the file
 ```
+
+If the file is deleted, the in-memory set is cleared and the app keeps running. If the parent directory is removed, the app warns and waits up to 2 minutes for it to return before giving up.
 
 ### Deduplication disabled
 
