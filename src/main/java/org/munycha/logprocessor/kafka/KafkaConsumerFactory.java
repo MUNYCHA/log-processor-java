@@ -29,11 +29,6 @@ public class KafkaConsumerFactory {
         );
 
         consumerProps.put(
-                ConsumerConfig.CLIENT_ID_CONFIG,
-                "log-processor-" + java.util.UUID.randomUUID()
-        );
-
-        consumerProps.put(
                 ConsumerConfig.GROUP_ID_CONFIG,
                 groupId
         );
@@ -71,7 +66,10 @@ public class KafkaConsumerFactory {
     }
 
     public KafkaConsumer<String, String> createConsumer() {
-        return new KafkaConsumer<>(consumerProps);
+        Properties props = new Properties();
+        props.putAll(consumerProps);
+        props.put(ConsumerConfig.CLIENT_ID_CONFIG, "log-processor-" + java.util.UUID.randomUUID());
+        return new KafkaConsumer<>(props);
     }
 
     public Properties getConsumerProps() {
