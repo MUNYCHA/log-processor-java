@@ -7,15 +7,17 @@ import org.munycha.logprocessor.config.ConfigPathResolver;
 import org.munycha.logprocessor.config.TopicConfig;
 import org.munycha.logprocessor.config.TopicType;
 import org.munycha.logprocessor.kafka.KafkaConsumerFactory;
-import org.munycha.logprocessor.kafka.KafkaTopicConsumer;
+import org.munycha.logprocessor.kafka.TopicPollLoop;
 import org.munycha.logprocessor.log.AlertDetector;
 import org.munycha.logprocessor.log.AlertPatternStore;
 import org.munycha.logprocessor.log.LogMessageNormalizer;
 import org.munycha.logprocessor.notification.TelegramAlertFormatter;
 import org.munycha.logprocessor.notification.TelegramNotificationService;
+import org.munycha.logprocessor.pipeline.BatchFileWriter;
 import org.munycha.logprocessor.pipeline.LogRecordHandler;
 import org.munycha.logprocessor.pipeline.MetricRecordHandler;
 import org.munycha.logprocessor.pipeline.RecordHandler;
+import org.munycha.logprocessor.pipeline.TopicContext;
 import org.munycha.logprocessor.repository.AlertRepository;
 import org.munycha.logprocessor.repository.ServerStorageSnapshotRepository;
 import org.slf4j.Logger;
@@ -86,41 +88,41 @@ public class LogProcessorApplication {
                 "file-log-consumer"
         );
 
-        // Keep references so shutdown() can be called on each consumer
-        List<KafkaTopicConsumer> consumers = new ArrayList<>();
+        // Keep references so shutdown() can be called on each poll loop
+        List<TopicPollLoop> pollLoops = new ArrayList<>();
 
-        // Start one KafkaTopicConsumer per topic
+        // Start one TopicPollLoop per topic
         for (TopicConfig t : config.getTopics()) {
             RecordHandler handler = buildHandler(
                     t, jsonMapper, alertRepository, storageSnapshotRepository);
+            BatchFileWriter batchFileWriter = new BatchFileWriter(Paths.get(t.getOutput()));
+            TopicContext ctx = new TopicContext(t.getTopic(), handler, batchFileWriter);
 
-            KafkaTopicConsumer consumer = new KafkaTopicConsumer(
+            TopicPollLoop pollLoop = new TopicPollLoop(
                     consumerFactory,
-                    t.getTopic(),
-                    Paths.get(t.getOutput()),
-                    handler,
+                    ctx,
                     notifier,
                     alertFormatter,
                     telegramAlertExecutor
             );
-            consumers.add(consumer);
-            consumerExecutor.submit(consumer);
+            pollLoops.add(pollLoop);
+            consumerExecutor.submit(pollLoop);
         }
 
         // Graceful shutdown sequence:
-        //   1. signal each consumer (sets running=false, wakes up Kafka poll)
-        //   2. wait for consumer threads to finish their current batch and exit
+        //   1. signal each poll loop (sets running=false, wakes up Kafka poll)
+        //   2. wait for poll loop threads to finish their current batch and exit
         //   3. drain the telegram queue so queued alerts are not silently discarded
         Runtime.getRuntime().addShutdownHook(new Thread(() -> {
-            log.info("Signalling consumers to stop...");
-            for (KafkaTopicConsumer consumer : consumers) {
-                consumer.shutdown();
+            log.info("Signalling poll loops to stop...");
+            for (TopicPollLoop pollLoop : pollLoops) {
+                pollLoop.shutdown();
             }
 
             consumerExecutor.shutdown();
             try {
                 if (!consumerExecutor.awaitTermination(15, TimeUnit.SECONDS)) {
-                    log.warn("Consumer threads did not stop in time, forcing.");
+                    log.warn("Poll loop threads did not stop in time, forcing.");
                     consumerExecutor.shutdownNow();
                 }
             } catch (InterruptedException ignored) {
