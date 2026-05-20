@@ -1,31 +1,35 @@
 package org.munycha.logprocessor.kafka;
 
-import com.fasterxml.jackson.databind.ObjectMapper;
-import com.fasterxml.jackson.databind.ObjectWriter;
 import org.apache.kafka.clients.consumer.*;
 import org.apache.kafka.common.errors.WakeupException;
-import org.slf4j.Logger;
-import org.slf4j.LoggerFactory;
-import org.munycha.logprocessor.log.AlertDetector;
-import org.munycha.logprocessor.log.AlertPatternStore;
-import org.munycha.logprocessor.config.TopicType;
 import org.munycha.logprocessor.log.LogEvent;
-import org.munycha.logprocessor.metric.ServerStorageSnapshot;
-import org.munycha.logprocessor.log.LogMessageNormalizer;
 import org.munycha.logprocessor.notification.Notifier;
 import org.munycha.logprocessor.notification.TelegramAlertFormatter;
 import org.munycha.logprocessor.pipeline.BatchFileWriter;
-import org.munycha.logprocessor.repository.AlertRepository;
-import org.munycha.logprocessor.repository.ServerStorageSnapshotRepository;
+import org.munycha.logprocessor.pipeline.RecordHandler;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 
 import java.io.IOException;
 import java.io.StringWriter;
-import java.io.Writer;
-import java.nio.file.*;
-import java.time.*;
-import java.util.*;
-import java.util.concurrent.*;
+import java.nio.file.Path;
+import java.time.Duration;
+import java.util.ArrayList;
+import java.util.Collections;
+import java.util.List;
+import java.util.Optional;
+import java.util.concurrent.ExecutorService;
 
+/**
+ * Long-running Kafka poll loop for one topic. Delegates per-record work
+ * to a {@link RecordHandler}; collects up to {@value #MAX_TELEGRAM_ALERTS_PER_BATCH}
+ * alert events per poll and dispatches them on a shared executor after
+ * the batch is committed.
+ *
+ * Records are buffered in memory, flushed to disk in one append per
+ * poll cycle, and only then committed to Kafka. If the handler throws,
+ * the entire batch is discarded and the same offsets are re-polled.
+ */
 public class KafkaTopicConsumer implements Runnable {
 
     private static final Logger log = LoggerFactory.getLogger(KafkaTopicConsumer.class);
@@ -33,85 +37,49 @@ public class KafkaTopicConsumer implements Runnable {
     private static final int MAX_TELEGRAM_ALERTS_PER_BATCH = 5;
 
     private final String topic;
-    private final TopicType type;
     private final BatchFileWriter batchFileWriter;
-    private final AlertDetector alertDetector;
-    private final AlertRepository alertRepository;
-    private final ServerStorageSnapshotRepository storageSnapshotRepository;
+    private final RecordHandler handler;
     private final KafkaConsumer<String, String> consumer;
     private final Notifier notifier;
     private final TelegramAlertFormatter alertFormatter;
     private final ExecutorService telegramAlertExecutor;
-    private final ObjectMapper mapper = new ObjectMapper();
-    private final ObjectWriter prettyWriter = mapper.writerWithDefaultPrettyPrinter();
-
-    // null when patternStoreFile is not configured — dedup disabled for this topic
-    private final AlertPatternStore patternStore;
-
-    // Per-topic normalizer instance — carries this topic's custom rules
-    private final LogMessageNormalizer normalizer;
 
     private volatile boolean running = true;
 
     public KafkaTopicConsumer(KafkaConsumerFactory consumerFactory,
                               String topic,
-                              TopicType type,
                               Path outputFile,
+                              RecordHandler handler,
                               Notifier notifier,
                               TelegramAlertFormatter alertFormatter,
-                              AlertDetector alertDetector,
-                              AlertRepository alertRepository,
-                              ServerStorageSnapshotRepository storageSnapshotRepository,
-                              ExecutorService telegramAlertExecutor,
-                              Path patternStoreFile,
-                              LogMessageNormalizer normalizer) throws IOException {
-
+                              ExecutorService telegramAlertExecutor) {
         this.topic = topic;
-        this.type = type;
         this.batchFileWriter = new BatchFileWriter(outputFile);
-        this.alertDetector = alertDetector;
-        this.alertRepository = alertRepository;
-        this.storageSnapshotRepository = storageSnapshotRepository;
+        this.handler = handler;
+        this.notifier = notifier;
+        this.alertFormatter = alertFormatter;
         this.telegramAlertExecutor = telegramAlertExecutor;
-        this.patternStore = patternStoreFile != null ? new AlertPatternStore(patternStoreFile) : null;
-        this.normalizer = normalizer != null ? normalizer : new LogMessageNormalizer();
 
         this.consumer = consumerFactory.createConsumer();
         this.consumer.subscribe(Collections.singletonList(this.topic));
-        this.notifier = notifier;
-        this.alertFormatter = alertFormatter;
     }
 
     @Override
     public void run() {
-
         try {
-
             while (running) {
-
-                ConsumerRecords<String, String> records =
-                        consumer.poll(Duration.ofMillis(500));
+                ConsumerRecords<String, String> records = consumer.poll(Duration.ofMillis(500));
 
                 boolean success = true;
                 List<LogEvent> telegramQueue = new ArrayList<>();
                 StringWriter batchBuffer = new StringWriter();
 
                 for (ConsumerRecord<String, String> record : records) {
-
                     try {
-
-                        switch (type) {
-                            case LOG:
-                                LogEvent alertEvent = handleLogRecord(record, batchBuffer);
-                                if (alertEvent != null && telegramQueue.size() < MAX_TELEGRAM_ALERTS_PER_BATCH) {
-                                    telegramQueue.add(alertEvent);
-                                }
-                                break;
-                            case METRIC:
-                                handleMetricRecord(record, batchBuffer);
-                                break;
+                        Optional<LogEvent> alertEvent = handler.handle(record, batchBuffer);
+                        if (alertEvent.isPresent() && telegramQueue.size() < MAX_TELEGRAM_ALERTS_PER_BATCH) {
+                            telegramQueue.add(alertEvent.get());
                         }
-
                     } catch (Exception e) {
                         success = false;
                         Throwable cause = e.getCause() != null ? e.getCause() : e;
@@ -129,13 +97,11 @@ public class KafkaTopicConsumer implements Runnable {
                 if (success) {
                     batchFileWriter.flush(batchBuffer.toString());
                     consumer.commitSync();
-
                     for (LogEvent ev : telegramQueue) {
                         sendTelegramAsync(ev);
                     }
                 }
             }
-
         } catch (WakeupException ignored) {
         } catch (IOException e) {
             log.error("Writer failure: {}", e.getMessage(), e);
@@ -144,81 +110,9 @@ public class KafkaTopicConsumer implements Runnable {
         }
     }
 
-    // ===================== METRIC =====================
-
-    private void handleMetricRecord(ConsumerRecord<String, String> record, Writer batchBuffer) {
-
-        try {
-
-            ServerStorageSnapshot snapshot =
-                    mapper.readValue(record.value(), ServerStorageSnapshot.class);
-
-            batchBuffer.write(prettyWriter.writeValueAsString(snapshot));
-            batchBuffer.write(System.lineSeparator());
-
-            storageSnapshotRepository.saveSnapshotWithDiskUsages(snapshot);
-
-        } catch (Exception e) {
-            throw new RuntimeException("Metric DB save failed", e);
-        }
-    }
-
-    // ===================== LOG =====================
-
-    private LogEvent handleLogRecord(ConsumerRecord<String, String> record, Writer batchBuffer) {
-
-        try {
-
-            LogEvent event = mapper.readValue(record.value(), LogEvent.class);
-
-            String msg = event.getMessage();
-
-            batchBuffer.write(msg);
-            batchBuffer.write(System.lineSeparator());
-
-            if (!alertDetector.matches(msg)) {
-                return null;
-            }
-
-            if (patternStore != null) {
-                String pattern = normalizer.normalizeMessage(msg);
-
-                if (patternStore.isKnown(pattern)) {
-                    log.debug("Suppressed: pattern already known: {}", pattern);
-                    return null;
-                }
-
-                saveAlert(event);
-                patternStore.add(pattern);
-                return event;
-            }
-
-            saveAlert(event);
-            return event;
-
-        } catch (Exception e) {
-            throw new RuntimeException("Log processing failed", e);
-        }
-    }
-
-    // ===================== ALERT =====================
-
-    private void saveAlert(LogEvent event) {
-
-        alertRepository.saveAlert(
-                event.getTopic(),
-                event.getTimestamp(),
-                event.getServerName(),
-                event.getPath(),
-                event.getMessage()
-        );
-    }
-
     private void sendTelegramAsync(LogEvent event) {
         telegramAlertExecutor.submit(() -> notifier.send(alertFormatter.format(event)));
     }
-
-    // ===================== SHUTDOWN =====================
 
     public void shutdown() {
         running = false;

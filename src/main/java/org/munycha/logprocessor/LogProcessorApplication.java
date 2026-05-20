@@ -1,15 +1,21 @@
 package org.munycha.logprocessor;
 
+import com.fasterxml.jackson.databind.ObjectMapper;
 import org.munycha.logprocessor.config.AppConfig;
 import org.munycha.logprocessor.config.ConfigLoader;
 import org.munycha.logprocessor.config.ConfigPathResolver;
 import org.munycha.logprocessor.config.TopicConfig;
+import org.munycha.logprocessor.config.TopicType;
 import org.munycha.logprocessor.kafka.KafkaConsumerFactory;
 import org.munycha.logprocessor.kafka.KafkaTopicConsumer;
 import org.munycha.logprocessor.log.AlertDetector;
+import org.munycha.logprocessor.log.AlertPatternStore;
 import org.munycha.logprocessor.log.LogMessageNormalizer;
 import org.munycha.logprocessor.notification.TelegramAlertFormatter;
 import org.munycha.logprocessor.notification.TelegramNotificationService;
+import org.munycha.logprocessor.pipeline.LogRecordHandler;
+import org.munycha.logprocessor.pipeline.MetricRecordHandler;
+import org.munycha.logprocessor.pipeline.RecordHandler;
 import org.munycha.logprocessor.repository.AlertRepository;
 import org.munycha.logprocessor.repository.ServerStorageSnapshotRepository;
 import org.slf4j.Logger;
@@ -54,6 +60,9 @@ public class LogProcessorApplication {
         );
         TelegramAlertFormatter alertFormatter = new TelegramAlertFormatter();
 
+        // Shared, thread-safe Jackson mapper for all handlers.
+        ObjectMapper jsonMapper = new ObjectMapper();
+
         // Validate all configured paths exist and are writable before starting anything
         for (TopicConfig t : config.getTopics()) {
             validatePaths(t);
@@ -82,27 +91,17 @@ public class LogProcessorApplication {
 
         // Start one KafkaTopicConsumer per topic
         for (TopicConfig t : config.getTopics()) {
-            Path patternStoreFile = t.hasPatternStore()
-                    ? Paths.get(t.getPatternStoreFile())
-                    : null;
-
-            LogMessageNormalizer normalizer = buildNormalizer(t);
-
-            AlertDetector alertDetector = new AlertDetector(t.getAlertKeywords());
+            RecordHandler handler = buildHandler(
+                    t, jsonMapper, alertRepository, storageSnapshotRepository);
 
             KafkaTopicConsumer consumer = new KafkaTopicConsumer(
                     consumerFactory,
                     t.getTopic(),
-                    t.getType(),
                     Paths.get(t.getOutput()),
+                    handler,
                     notifier,
                     alertFormatter,
-                    alertDetector,
-                    alertRepository,
-                    storageSnapshotRepository,
-                    telegramAlertExecutor,
-                    patternStoreFile,
-                    normalizer
+                    telegramAlertExecutor
             );
             consumers.add(consumer);
             consumerExecutor.submit(consumer);
@@ -143,6 +142,23 @@ public class LogProcessorApplication {
         }));
 
         new CountDownLatch(1).await();
+    }
+
+    private static RecordHandler buildHandler(TopicConfig t,
+                                              ObjectMapper jsonMapper,
+                                              AlertRepository alertRepository,
+                                              ServerStorageSnapshotRepository snapshotRepository) throws IOException {
+        if (t.getType() == TopicType.METRIC) {
+            return new MetricRecordHandler(jsonMapper, snapshotRepository);
+        }
+
+        AlertPatternStore patternStore = t.hasPatternStore()
+                ? new AlertPatternStore(Paths.get(t.getPatternStoreFile()))
+                : null;
+        LogMessageNormalizer normalizer = buildNormalizer(t);
+        AlertDetector alertDetector = new AlertDetector(t.getAlertKeywords());
+
+        return new LogRecordHandler(jsonMapper, alertDetector, normalizer, patternStore, alertRepository);
     }
 
     private static LogMessageNormalizer buildNormalizer(TopicConfig t) {
