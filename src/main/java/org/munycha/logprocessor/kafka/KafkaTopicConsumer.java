@@ -13,14 +13,13 @@ import org.munycha.logprocessor.metric.ServerStorageSnapshot;
 import org.munycha.logprocessor.log.LogMessageNormalizer;
 import org.munycha.logprocessor.notification.Notifier;
 import org.munycha.logprocessor.notification.TelegramAlertFormatter;
+import org.munycha.logprocessor.pipeline.BatchFileWriter;
 import org.munycha.logprocessor.repository.AlertRepository;
 import org.munycha.logprocessor.repository.ServerStorageSnapshotRepository;
 
-import java.io.BufferedWriter;
 import java.io.IOException;
 import java.io.StringWriter;
 import java.io.Writer;
-import java.nio.charset.StandardCharsets;
 import java.nio.file.*;
 import java.time.*;
 import java.util.*;
@@ -35,7 +34,7 @@ public class KafkaTopicConsumer implements Runnable {
 
     private final String topic;
     private final TopicType type;
-    private final Path outputFile;
+    private final BatchFileWriter batchFileWriter;
     private final Set<String> alertKeywords;
     private final AlertRepository alertRepository;
     private final ServerStorageSnapshotRepository storageSnapshotRepository;
@@ -69,7 +68,7 @@ public class KafkaTopicConsumer implements Runnable {
 
         this.topic = topic;
         this.type = type;
-        this.outputFile = outputFile;
+        this.batchFileWriter = new BatchFileWriter(outputFile);
         this.alertKeywords =
                 alertKeywords == null
                         ? Collections.emptySet()
@@ -136,19 +135,7 @@ public class KafkaTopicConsumer implements Runnable {
                 }
 
                 if (success) {
-                    String batchContent = batchBuffer.toString();
-                    if (!batchContent.isEmpty()) {
-                        // Open, write entire batch, close — file is never held open between polls.
-                        // Rotation scripts can safely truncate or replace the file at any time.
-                        try (BufferedWriter fileWriter = Files.newBufferedWriter(
-                                outputFile,
-                                StandardCharsets.UTF_8,
-                                StandardOpenOption.WRITE,
-                                StandardOpenOption.APPEND
-                        )) {
-                            fileWriter.write(batchContent);
-                        }
-                    }
+                    batchFileWriter.flush(batchBuffer.toString());
                     consumer.commitSync();
 
                     for (LogEvent ev : telegramQueue) {
