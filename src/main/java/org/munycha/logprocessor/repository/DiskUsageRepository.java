@@ -1,7 +1,7 @@
 package org.munycha.logprocessor.repository;
 
 import org.munycha.logprocessor.config.DatabaseConfig;
-import org.munycha.logprocessor.model.DiskUsage;
+import org.munycha.logprocessor.metric.DiskUsage;
 
 import java.sql.Connection;
 import java.sql.DriverManager;

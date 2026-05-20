@@ -1,5 +1,4 @@
-package org.munycha.logprocessor.model;
-
+package org.munycha.logprocessor.metric;
 
 import java.util.List;
 

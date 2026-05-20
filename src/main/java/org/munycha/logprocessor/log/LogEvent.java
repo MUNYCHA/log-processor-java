@@ -1,4 +1,4 @@
-package org.munycha.logprocessor.model;
+package org.munycha.logprocessor.log;
 
 public class LogEvent {
 

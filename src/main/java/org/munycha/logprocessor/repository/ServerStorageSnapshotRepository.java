@@ -1,8 +1,8 @@
 package org.munycha.logprocessor.repository;
 
 import org.munycha.logprocessor.config.DatabaseConfig;
-import org.munycha.logprocessor.model.DiskUsage;
-import org.munycha.logprocessor.model.ServerStorageSnapshot;
+import org.munycha.logprocessor.metric.DiskUsage;
+import org.munycha.logprocessor.metric.ServerStorageSnapshot;
 
 import java.sql.*;
 import java.time.Instant;
