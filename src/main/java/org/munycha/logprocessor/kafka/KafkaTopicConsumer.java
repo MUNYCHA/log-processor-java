@@ -6,6 +6,7 @@ import org.apache.kafka.clients.consumer.*;
 import org.apache.kafka.common.errors.WakeupException;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
+import org.munycha.logprocessor.log.AlertDetector;
 import org.munycha.logprocessor.log.AlertPatternStore;
 import org.munycha.logprocessor.config.TopicType;
 import org.munycha.logprocessor.log.LogEvent;
@@ -24,7 +25,6 @@ import java.nio.file.*;
 import java.time.*;
 import java.util.*;
 import java.util.concurrent.*;
-import java.util.stream.Collectors;
 
 public class KafkaTopicConsumer implements Runnable {
 
@@ -35,7 +35,7 @@ public class KafkaTopicConsumer implements Runnable {
     private final String topic;
     private final TopicType type;
     private final BatchFileWriter batchFileWriter;
-    private final Set<String> alertKeywords;
+    private final AlertDetector alertDetector;
     private final AlertRepository alertRepository;
     private final ServerStorageSnapshotRepository storageSnapshotRepository;
     private final KafkaConsumer<String, String> consumer;
@@ -59,7 +59,7 @@ public class KafkaTopicConsumer implements Runnable {
                               Path outputFile,
                               Notifier notifier,
                               TelegramAlertFormatter alertFormatter,
-                              List<String> alertKeywords,
+                              AlertDetector alertDetector,
                               AlertRepository alertRepository,
                               ServerStorageSnapshotRepository storageSnapshotRepository,
                               ExecutorService telegramAlertExecutor,
@@ -69,15 +69,7 @@ public class KafkaTopicConsumer implements Runnable {
         this.topic = topic;
         this.type = type;
         this.batchFileWriter = new BatchFileWriter(outputFile);
-        this.alertKeywords =
-                alertKeywords == null
-                        ? Collections.emptySet()
-                        : alertKeywords.stream()
-                        .filter(Objects::nonNull)
-                        .map(String::trim)
-                        .filter(s -> !s.isEmpty())
-                        .map(String::toLowerCase)
-                        .collect(Collectors.toSet());
+        this.alertDetector = alertDetector;
         this.alertRepository = alertRepository;
         this.storageSnapshotRepository = storageSnapshotRepository;
         this.telegramAlertExecutor = telegramAlertExecutor;
@@ -173,12 +165,6 @@ public class KafkaTopicConsumer implements Runnable {
 
     // ===================== LOG =====================
 
-    private boolean isAlert(String lowerMsg) {
-        return type == TopicType.LOG &&
-                !alertKeywords.isEmpty() &&
-                alertKeywords.stream().anyMatch(lowerMsg::contains);
-    }
-
     private LogEvent handleLogRecord(ConsumerRecord<String, String> record, Writer batchBuffer) {
 
         try {
@@ -186,12 +172,11 @@ public class KafkaTopicConsumer implements Runnable {
             LogEvent event = mapper.readValue(record.value(), LogEvent.class);
 
             String msg = event.getMessage();
-            String lower = msg.toLowerCase();
 
             batchBuffer.write(msg);
             batchBuffer.write(System.lineSeparator());
 
-            if (!isAlert(lower)) {
+            if (!alertDetector.matches(msg)) {
                 return null;
             }
 

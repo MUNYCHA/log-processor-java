@@ -6,6 +6,7 @@ import org.munycha.logprocessor.config.ConfigPathResolver;
 import org.munycha.logprocessor.config.TopicConfig;
 import org.munycha.logprocessor.kafka.KafkaConsumerFactory;
 import org.munycha.logprocessor.kafka.KafkaTopicConsumer;
+import org.munycha.logprocessor.log.AlertDetector;
 import org.munycha.logprocessor.log.LogMessageNormalizer;
 import org.munycha.logprocessor.notification.TelegramAlertFormatter;
 import org.munycha.logprocessor.notification.TelegramNotificationService;
@@ -87,6 +88,8 @@ public class LogProcessorApplication {
 
             LogMessageNormalizer normalizer = buildNormalizer(t);
 
+            AlertDetector alertDetector = new AlertDetector(t.getAlertKeywords());
+
             KafkaTopicConsumer consumer = new KafkaTopicConsumer(
                     consumerFactory,
                     t.getTopic(),
@@ -94,7 +97,7 @@ public class LogProcessorApplication {
                     Paths.get(t.getOutput()),
                     notifier,
                     alertFormatter,
-                    t.getAlertKeywords(),
+                    alertDetector,
                     alertRepository,
                     storageSnapshotRepository,
                     telegramAlertExecutor,
