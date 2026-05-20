@@ -2,7 +2,9 @@ package org.munycha.logprocessor.log;
 
 import java.util.ArrayList;
 import java.util.Collections;
+import java.util.HashSet;
 import java.util.List;
+import java.util.Set;
 import java.util.regex.Pattern;
 
 /**
@@ -140,16 +142,56 @@ public final class LogMessageNormalizer {
 
     private static final LogMessageNormalizer DEFAULT = new LogMessageNormalizer();
 
+    // ===================== MEDIUM-mode passes (also run at LOW) =====================
+    //
+    // Digits embedded inside an identifier ( foo7 / req_123 / log4j ).
+    // Lookbehind requires a letter or underscore so we don't double-handle the
+    // standalone bare-number case PRE_PATTERN 21 already collapsed.
+    private static final Pattern MEDIUM_IDENT_DIGITS = Pattern.compile("(?<=[A-Za-z_])\\d+");
+
+    // All-letter hex words of 8+ chars ( deadbeef, feedface, cafebabe ).
+    // PRE_PATTERN 17 deliberately leaves these literal at HIGH because they may
+    // be real English words and a false merge silences alerts forever. At
+    // MEDIUM that's acceptable.
+    private static final Pattern MEDIUM_ALPHA_HEX_8 = Pattern.compile("\\b[a-fA-F]{8,}\\b");
+
+    // Short hex of 4–7 chars with at least one digit and one letter ( 0a3f, f00d ).
+    private static final Pattern MEDIUM_MIXED_HEX_47 =
+            Pattern.compile("\\b(?=[0-9a-fA-F]*\\d)(?=[0-9a-fA-F]*[a-fA-F])[0-9a-fA-F]{4,7}\\b");
+
     private final List<Rule> customRules;
+    private final PatternExtractRestrictMode mode;
+    private final Set<String> keepWords;
 
     public LogMessageNormalizer() {
-        this(Collections.<Rule>emptyList());
+        this(Collections.<Rule>emptyList(), PatternExtractRestrictMode.HIGH, Collections.<String>emptySet());
     }
 
     public LogMessageNormalizer(List<Rule> customRules) {
+        this(customRules, PatternExtractRestrictMode.HIGH, Collections.<String>emptySet());
+    }
+
+    public LogMessageNormalizer(List<Rule> customRules,
+                                PatternExtractRestrictMode mode,
+                                Set<String> alertKeywords) {
         this.customRules = customRules == null
                 ? Collections.<Rule>emptyList()
                 : Collections.unmodifiableList(new ArrayList<Rule>(customRules));
+        this.mode = mode == null ? PatternExtractRestrictMode.HIGH : mode;
+        this.keepWords = buildKeepWords(alertKeywords);
+    }
+
+    private static Set<String> buildKeepWords(Set<String> alertKeywords) {
+        if (alertKeywords == null || alertKeywords.isEmpty()) {
+            return Collections.emptySet();
+        }
+        Set<String> out = new HashSet<String>(alertKeywords.size());
+        for (String w : alertKeywords) {
+            if (w == null) continue;
+            String trimmed = w.trim().toLowerCase();
+            if (!trimmed.isEmpty()) out.add(trimmed);
+        }
+        return Collections.unmodifiableSet(out);
     }
 
     /** Convenience for callers with no custom rules (e.g. unit tests). */
@@ -167,9 +209,72 @@ public final class LogMessageNormalizer {
         for (int i = 0; i < PRE_PATTERNS.length; i++) {
             s = PRE_PATTERNS[i].matcher(s).replaceAll(PRE_REPLACEMENTS[i]);
         }
+        if (mode == PatternExtractRestrictMode.MEDIUM || mode == PatternExtractRestrictMode.LOW) {
+            s = mediumPass(s);
+        }
         s = extractStructures(s);
         s = classifyTokens(s);
+        if (mode == PatternExtractRestrictMode.LOW) {
+            s = lowPass(s);
+        }
         return s.trim();
+    }
+
+    // ===================== MEDIUM pass =====================
+
+    private String mediumPass(String s) {
+        // Order matters: hex rules first, so they get a chance to claim a
+        // digit-bearing run like "0a3f" before MEDIUM_IDENT_DIGITS strips
+        // the digit and leaves a stub like "0a<N>f".
+        s = MEDIUM_ALPHA_HEX_8.matcher(s).replaceAll("<HEX>");
+        s = MEDIUM_MIXED_HEX_47.matcher(s).replaceAll("<HEX>");
+        s = MEDIUM_IDENT_DIGITS.matcher(s).replaceAll("<N>");
+        return s;
+    }
+
+    // ===================== LOW pass =====================
+    //
+    // Walk tokens of the already-classified output. Any token whose core is
+    // a pure alphabetic word of length >= 3 collapses to <TOK> unless it is
+    // a configured alert keyword. Tokens that are placeholders, contain a
+    // placeholder, or are key=value pairs are left alone.
+
+    private String lowPass(String s) {
+        StringBuilder out = new StringBuilder(s.length());
+        int n = s.length();
+        int i = 0;
+        boolean first = true;
+        while (i < n) {
+            while (i < n && Character.isWhitespace(s.charAt(i))) i++;
+            if (i >= n) break;
+            int start = i;
+            while (i < n && !Character.isWhitespace(s.charAt(i))) i++;
+            String token = s.substring(start, i);
+            if (!first) out.append(' ');
+            out.append(collapseLowToken(token));
+            first = false;
+        }
+        return out.toString();
+    }
+
+    private String collapseLowToken(String token) {
+        int start = 0;
+        int end = token.length();
+        while (start < end && isPeelable(token.charAt(start))) start++;
+        while (end > start && isPeelable(token.charAt(end - 1))) end--;
+
+        String prefix = token.substring(0, start);
+        String core = token.substring(start, end);
+        String suffix = token.substring(end);
+
+        if (core.length() < 3) return token;
+        if (isPlaceholder(core) || containsPlaceholder(core)) return token;
+        if (core.indexOf('=') >= 0) return token;
+        for (int i = 0; i < core.length(); i++) {
+            if (!Character.isLetter(core.charAt(i))) return token;
+        }
+        if (keepWords.contains(core.toLowerCase())) return token;
+        return prefix + "<TOK>" + suffix;
     }
 
     // ===================== PASS 1b — balance-aware extraction =====================

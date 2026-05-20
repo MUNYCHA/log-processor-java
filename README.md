@@ -148,6 +148,7 @@ The application is driven by a single JSON file.
 | `alertKeywords` | No | Keywords that trigger an alert (LOG topics only, case-insensitive) |
 | `patternStoreFile` | No | Absolute path to the pattern store file for alert deduplication (LOG topics only) — must exist before app starts |
 | `customNormalizationRules` | No | Array of `{pattern, replacement}` regex rules applied **before** the built-in normalizer (LOG topics only). Use to collapse app-specific tokens, e.g. `[{"pattern":"worker-\\d+","replacement":"<WORKER>"}]` |
+| `patternExtractRestrictMode` | No | `high` (default), `medium`, or `low`. Controls how aggressively the normalizer collapses tokens before fingerprinting — see [Pattern-extract restrict modes](#pattern-extract-restrict-modes). Null/blank/unknown values fall back to `high`. |
 
 ---
 
@@ -229,6 +230,22 @@ If the file is deleted, the in-memory set is cleared and the app keeps running. 
 ### Deduplication disabled
 
 If `patternStoreFile` is not set for a topic, every alert is sent to Telegram and saved to DB as normal. No deduplication overhead is added.
+
+### Pattern-extract restrict modes
+
+The normalizer's strictness is configurable per topic via `patternExtractRestrictMode`. Looser modes group more near-duplicate log lines under the same fingerprint, which means more dedup happens and fewer Telegram alerts are sent — at the cost of occasionally merging genuinely different alerts.
+
+| Token shape | `high` (default) | `medium` | `low` |
+|---|---|---|---|
+| Identifier-embedded number (`apache2`, `req_123`, `worker7`) | kept literal | `apache<N>`, `req_<N>`, `worker<N>` | same as `medium` |
+| Bare hex word, all letters (`deadbeef`, `feedface`, `cafebabe`) | kept literal | `<HEX>` | `<HEX>` |
+| Short hex 4–7 chars with digit+letter mix (`0a3f`, `f00d`) | kept literal | `<HEX>` | `<HEX>` |
+| Arbitrary alphabetic word ≥ 3 chars (not an alert keyword, not a placeholder, not in a `key=val` pair) | kept literal | kept literal | `<TOK>` |
+| Everything else (`<TS>`, `<URL>`, `<EMAIL>`, `<UUID>`, `<IP>`, `<PATH>`, `<SIZE>`, `<DUR>`, `key=val`, `<STR>`, `<JSON>`, `<ARR>`, …) | same as today | same as today | same as today |
+
+At `low`, the topic's `alertKeywords` are passed through verbatim into the normalizer so they survive the `<TOK>` collapse — otherwise different alert types would all fingerprint to the same `<TOK> <TOK> <TOK>` string and only the first would ever fire.
+
+Use `high` (the default) unless you have measured a topic generating duplicates the precision-first normalizer cannot collapse. `low` risks merging genuinely different alerts under one fingerprint, which silently silences them forever — verify the behavior per topic before rolling it out.
 
 ---
 

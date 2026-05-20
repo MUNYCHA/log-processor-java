@@ -19,6 +19,11 @@ public class TopicConfig {
     // (e.g. "worker-\d+" → "<WORKER>") without modifying core code.
     private List<NormalizationRule> customNormalizationRules;
 
+    // OPTIONAL — "high" (default), "medium", or "low". Controls how
+    // aggressively the normalizer collapses variable tokens before
+    // fingerprinting. Null/blank/unknown values fall back to HIGH.
+    private String patternExtractRestrictMode;
+
     public TopicConfig() {}
 
     public TopicConfig(String topic, TopicType type, String output, List<String> alertKeywords) {
@@ -86,6 +91,14 @@ public class TopicConfig {
 
     public boolean hasCustomNormalizationRules() {
         return customNormalizationRules != null && !customNormalizationRules.isEmpty();
+    }
+
+    public String getPatternExtractRestrictMode() {
+        return patternExtractRestrictMode;
+    }
+
+    public void setPatternExtractRestrictMode(String patternExtractRestrictMode) {
+        this.patternExtractRestrictMode = patternExtractRestrictMode;
     }
 
     /** Per-topic regex replacement rule (deserialized from JSON config). */

@@ -9,6 +9,7 @@ import org.munycha.logprocessor.kafka.TopicPollLoop;
 import org.munycha.logprocessor.log.AlertDetector;
 import org.munycha.logprocessor.log.AlertPatternStore;
 import org.munycha.logprocessor.log.LogMessageNormalizer;
+import org.munycha.logprocessor.log.PatternExtractRestrictMode;
 import org.munycha.logprocessor.notification.TelegramAlertFormatter;
 import org.munycha.logprocessor.notification.TelegramNotificationService;
 import org.munycha.logprocessor.pipeline.BatchFileWriter;
@@ -22,7 +23,10 @@ import org.munycha.logprocessor.repository.ServerStorageSnapshotRepository;
 import java.io.IOException;
 import java.nio.file.Paths;
 import java.util.ArrayList;
+import java.util.Collections;
+import java.util.HashSet;
 import java.util.List;
+import java.util.Set;
 import java.util.concurrent.ExecutorService;
 
 /**
@@ -93,14 +97,18 @@ public final class ApplicationBootstrap {
     }
 
     private static LogMessageNormalizer buildNormalizer(TopicConfig t) {
-        if (!t.hasCustomNormalizationRules()) {
-            return new LogMessageNormalizer();
-        }
+        PatternExtractRestrictMode mode = PatternExtractRestrictMode.parse(t.getPatternExtractRestrictMode());
+        Set<String> keepWords = t.hasAlertKeywords()
+                ? new HashSet<>(t.getAlertKeywords())
+                : Collections.<String>emptySet();
+
         List<LogMessageNormalizer.Rule> rules = new ArrayList<>();
-        for (TopicConfig.NormalizationRule r : t.getCustomNormalizationRules()) {
-            if (r.getPattern() == null || r.getReplacement() == null) continue;
-            rules.add(new LogMessageNormalizer.Rule(r.getPattern(), r.getReplacement()));
+        if (t.hasCustomNormalizationRules()) {
+            for (TopicConfig.NormalizationRule r : t.getCustomNormalizationRules()) {
+                if (r.getPattern() == null || r.getReplacement() == null) continue;
+                rules.add(new LogMessageNormalizer.Rule(r.getPattern(), r.getReplacement()));
+            }
         }
-        return new LogMessageNormalizer(rules);
+        return new LogMessageNormalizer(rules, mode, keepWords);
     }
 }
