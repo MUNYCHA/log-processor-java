@@ -1,4 +1,4 @@
-package org.munycha.logprocessor.normalizer;
+package org.munycha.logprocessor.log;
 
 import org.junit.jupiter.api.DynamicTest;
 import org.junit.jupiter.api.TestFactory;

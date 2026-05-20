@@ -1,4 +1,4 @@
-package org.munycha.logprocessor.normalizer;
+package org.munycha.logprocessor.log;
 
 import java.util.ArrayList;
 import java.util.Collections;

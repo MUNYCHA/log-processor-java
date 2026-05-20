@@ -1,4 +1,4 @@
-package org.munycha.logprocessor.alert;
+package org.munycha.logprocessor.log;
 
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.io.TempDir;
