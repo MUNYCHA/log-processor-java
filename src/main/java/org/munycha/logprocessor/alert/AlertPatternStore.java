@@ -13,7 +13,7 @@ public class AlertPatternStore {
     private static final int DIR_POLL_INTERVAL_MS = 5_000;
     private static final int DIR_POLL_MAX_ATTEMPTS = 24; // 24 × 5s = 2 minutes
 
-    private final Set<String> knownPatterns = ConcurrentHashMap.newKeySet();
+    private volatile Set<String> knownPatterns = ConcurrentHashMap.newKeySet();
     private final Object lock = new Object();
     private final Path patternFile;
 
@@ -39,20 +39,24 @@ public class AlertPatternStore {
 
     private void reload() {
         synchronized (lock) {
-            knownPatterns.clear();
-            if (!Files.exists(patternFile)) return;
+            if (!Files.exists(patternFile)) {
+                knownPatterns = ConcurrentHashMap.newKeySet();
+                return;
+            }
+            Set<String> next = ConcurrentHashMap.newKeySet();
             try (BufferedReader reader = Files.newBufferedReader(patternFile, StandardCharsets.UTF_8)) {
                 String line;
                 while ((line = reader.readLine()) != null) {
                     String trimmed = line.trim();
                     if (!trimmed.isEmpty()) {
-                        knownPatterns.add(trimmed);
+                        next.add(trimmed);
                     }
                 }
+                knownPatterns = next;
                 System.out.println("[PatternStore] Reloaded " + knownPatterns.size() +
                         " patterns from " + patternFile);
             } catch (IOException e) {
-                System.err.println("[PatternStore] Reload failed: " + e.getMessage());
+                System.err.println("[PatternStore] Reload failed, keeping previous patterns: " + e.getMessage());
             }
         }
     }
@@ -170,7 +174,7 @@ public class AlertPatternStore {
 
                     if (event.kind() == StandardWatchEventKinds.ENTRY_DELETE) {
                         synchronized (lock) {
-                            knownPatterns.clear();
+                            knownPatterns = ConcurrentHashMap.newKeySet();
                         }
                         System.out.println("[PatternStore] File deleted — cleared all patterns");
                     } else {
