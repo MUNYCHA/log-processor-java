@@ -7,6 +7,7 @@ import org.munycha.logprocessor.config.TopicConfig;
 import org.munycha.logprocessor.kafka.KafkaConsumerFactory;
 import org.munycha.logprocessor.kafka.KafkaTopicConsumer;
 import org.munycha.logprocessor.log.LogMessageNormalizer;
+import org.munycha.logprocessor.notification.TelegramAlertFormatter;
 import org.munycha.logprocessor.notification.TelegramNotificationService;
 import org.munycha.logprocessor.repository.AlertRepository;
 import org.munycha.logprocessor.repository.ServerStorageSnapshotRepository;
@@ -46,10 +47,11 @@ public class LogProcessorApplication {
         ServerStorageSnapshotRepository storageSnapshotRepository =
                 new ServerStorageSnapshotRepository(config.getDatabase());
 
-        // Telegram notification service
+        // Telegram notification service + shared message formatter
         TelegramNotificationService notifier = new TelegramNotificationService(
                 config.getTelegramBotToken(), config.getTelegramChatId()
         );
+        TelegramAlertFormatter alertFormatter = new TelegramAlertFormatter();
 
         // Validate all configured paths exist and are writable before starting anything
         for (TopicConfig t : config.getTopics()) {
@@ -91,6 +93,7 @@ public class LogProcessorApplication {
                     t.getType(),
                     Paths.get(t.getOutput()),
                     notifier,
+                    alertFormatter,
                     t.getAlertKeywords(),
                     alertRepository,
                     storageSnapshotRepository,

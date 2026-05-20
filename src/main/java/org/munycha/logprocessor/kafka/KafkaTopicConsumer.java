@@ -11,7 +11,8 @@ import org.munycha.logprocessor.config.TopicType;
 import org.munycha.logprocessor.log.LogEvent;
 import org.munycha.logprocessor.metric.ServerStorageSnapshot;
 import org.munycha.logprocessor.log.LogMessageNormalizer;
-import org.munycha.logprocessor.notification.TelegramNotificationService;
+import org.munycha.logprocessor.notification.Notifier;
+import org.munycha.logprocessor.notification.TelegramAlertFormatter;
 import org.munycha.logprocessor.repository.AlertRepository;
 import org.munycha.logprocessor.repository.ServerStorageSnapshotRepository;
 
@@ -22,7 +23,6 @@ import java.io.Writer;
 import java.nio.charset.StandardCharsets;
 import java.nio.file.*;
 import java.time.*;
-import java.time.format.DateTimeFormatter;
 import java.util.*;
 import java.util.concurrent.*;
 import java.util.stream.Collectors;
@@ -33,9 +33,6 @@ public class KafkaTopicConsumer implements Runnable {
 
     private static final int MAX_TELEGRAM_ALERTS_PER_BATCH = 5;
 
-    private static final DateTimeFormatter TIMESTAMP_FORMATTER =
-            DateTimeFormatter.ofPattern("yyyy-MM-dd HH:mm:ss");
-
     private final String topic;
     private final TopicType type;
     private final Path outputFile;
@@ -43,7 +40,8 @@ public class KafkaTopicConsumer implements Runnable {
     private final AlertRepository alertRepository;
     private final ServerStorageSnapshotRepository storageSnapshotRepository;
     private final KafkaConsumer<String, String> consumer;
-    private final TelegramNotificationService notifier;
+    private final Notifier notifier;
+    private final TelegramAlertFormatter alertFormatter;
     private final ExecutorService telegramAlertExecutor;
     private final ObjectMapper mapper = new ObjectMapper();
     private final ObjectWriter prettyWriter = mapper.writerWithDefaultPrettyPrinter();
@@ -60,7 +58,8 @@ public class KafkaTopicConsumer implements Runnable {
                               String topic,
                               TopicType type,
                               Path outputFile,
-                              TelegramNotificationService notifier,
+                              Notifier notifier,
+                              TelegramAlertFormatter alertFormatter,
                               List<String> alertKeywords,
                               AlertRepository alertRepository,
                               ServerStorageSnapshotRepository storageSnapshotRepository,
@@ -89,6 +88,7 @@ public class KafkaTopicConsumer implements Runnable {
         this.consumer = consumerFactory.createConsumer();
         this.consumer.subscribe(Collections.singletonList(this.topic));
         this.notifier = notifier;
+        this.alertFormatter = alertFormatter;
     }
 
     @Override
@@ -243,23 +243,7 @@ public class KafkaTopicConsumer implements Runnable {
     }
 
     private void sendTelegramAsync(LogEvent event) {
-
-        telegramAlertExecutor.submit(() -> {
-
-            String formatted =
-                    Instant.parse(event.getTimestamp())
-                            .atZone(ZoneId.systemDefault())
-                            .format(TIMESTAMP_FORMATTER);
-
-            String message =
-                    "ALERT\nTime: " + formatted +
-                            "\nHost: " + event.getServerName() +
-                            "\nFile: " + event.getPath() +
-                            "\nTopic: " + event.getTopic() +
-                            "\nMessage: " + event.getMessage();
-
-            notifier.sendMessage(message);
-        });
+        telegramAlertExecutor.submit(() -> notifier.send(alertFormatter.format(event)));
     }
 
     // ===================== SHUTDOWN =====================

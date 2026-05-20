@@ -11,7 +11,7 @@ import java.net.SocketTimeoutException;
 import java.net.URL;
 import java.nio.charset.StandardCharsets;
 
-public class TelegramNotificationService {
+public class TelegramNotificationService implements Notifier {
 
     private static final Logger log = LoggerFactory.getLogger(TelegramNotificationService.class);
 
@@ -35,7 +35,8 @@ public class TelegramNotificationService {
         this.chatId = chatId;
     }
 
-    public synchronized void sendMessage(String message) {
+    @Override
+    public synchronized void send(String message) {
 
         try {
             enforceRateLimit();
