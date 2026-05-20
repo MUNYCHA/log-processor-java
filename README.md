@@ -194,7 +194,7 @@ Pattern: could not connect to <IP>:<PORT> after <TOKEN> retries=<VAL>
 ### Deduplication behavior
 
 - First occurrence of a pattern → saved to DB + sent to Telegram + pattern appended to `patternStoreFile`
-- Subsequent occurrences of the same pattern → suppressed (no DB write, no Telegram), logged locally as `[SUPPRESSED]`
+- Subsequent occurrences of the same pattern → suppressed (no DB write, no Telegram); a DEBUG line is logged
 - Patterns are loaded into memory at startup from `patternStoreFile` and checked in O(1) via `HashSet`
 - The pattern store survives app restarts — patterns persist on disk
 - If the pattern store reaches 10,000 entries a warning is logged, which may indicate a normalization miss
@@ -279,6 +279,48 @@ If `patternStoreFile` is not set for a topic, every alert is sent to Telegram an
 - Kafka topics must exist before the application starts (or broker auto-creation must be enabled)
 - The database schema must be created manually before first run
 - The application does not expose any HTTP endpoints
+
+---
+
+## Project Layout
+
+```
+org.munycha.logprocessor
+├── LogProcessorApplication        entry point — main()
+├── bootstrap/                     application wiring + lifecycle
+│   ├── ApplicationBootstrap       builds repos, executors, handlers, poll loops
+│   ├── RunningApplication         holds started state, owns shutdown()
+│   ├── ExecutorFactory            telegram + consumer executors
+│   └── PathValidator              startup file-writability checks
+├── config/                        JSON config classes + loader
+├── kafka/                         Kafka plumbing
+│   ├── KafkaConsumerFactory
+│   └── TopicPollLoop              long-running poll → dispatch → flush → commit
+├── pipeline/                      per-record processing
+│   ├── RecordHandler              interface
+│   ├── LogRecordHandler           LOG: parse → detect → dedup → save → emit
+│   ├── MetricRecordHandler        METRIC: parse → save snapshot transaction
+│   ├── BatchFileWriter            append-only batch flush
+│   └── TopicContext               per-topic bundle (name + handler + writer)
+├── log/                           log-domain helpers + data
+│   ├── LogEvent
+│   ├── AlertDetector              keyword match
+│   ├── LogMessageNormalizer       precision-first regex sweeps
+│   └── AlertPatternStore          atomic-swap pattern set + WatchService
+├── metric/                        metric-domain data
+│   ├── ServerStorageSnapshot
+│   └── DiskUsage
+├── notification/
+│   ├── Notifier                   interface
+│   ├── TelegramNotificationService rate-limited + adaptive backoff
+│   └── TelegramAlertFormatter     LogEvent → Telegram alert text
+└── repository/                    DB persistence
+    ├── AlertRepository
+    ├── ServerStorageSnapshotRepository
+    └── DiskUsageRepository
+```
+
+The two top-level domains (`log/`, `metric/`) own their data classes and any helpers specific to them. `pipeline/` is where the per-record processing lives — adding a new topic type means writing one new `RecordHandler` implementation and one branch in `ApplicationBootstrap#buildHandler`. The Kafka package only owns the poll loop and the consumer factory.
 
 ---
 
