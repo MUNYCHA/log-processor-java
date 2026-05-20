@@ -16,7 +16,8 @@
         "terminating connection",
         "could not"
       ],
-      "patternStoreFile": ""
+      "patternStoreFile": "",
+      "patternExtractRestrictMode": "high"
     },
     {
       "topic": "server-storage-snapshot",
