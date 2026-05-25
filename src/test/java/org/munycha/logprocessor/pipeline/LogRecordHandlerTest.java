@@ -93,10 +93,10 @@ class LogRecordHandlerTest {
         assertTrue(first.isPresent());
         assertEquals(1, repo.saveCount.get());
 
-        // Second identical: suppressed.
+        // Second identical: Telegram suppressed but DB still saves.
         Optional<LogEvent> second = handler.handle(record(ALERT_JSON), buffer);
         assertFalse(second.isPresent());
-        assertEquals(1, repo.saveCount.get(), "DB save should not be called again");
+        assertEquals(2, repo.saveCount.get(), "DB saves every alert regardless of known pattern");
     }
 
     @Test
