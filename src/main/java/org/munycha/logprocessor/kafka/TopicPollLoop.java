@@ -62,7 +62,6 @@ public class TopicPollLoop implements Runnable {
             while (running) {
                 ConsumerRecords<String, String> records = consumer.poll(Duration.ofMillis(500));
 
-                boolean success = true;
                 List<LogEvent> telegramQueue = new ArrayList<>();
                 StringWriter batchBuffer = new StringWriter();
 
@@ -73,30 +72,29 @@ public class TopicPollLoop implements Runnable {
                             telegramQueue.add(alertEvent.get());
                         }
                     } catch (Exception e) {
-                        success = false;
                         Throwable cause = e.getCause() != null ? e.getCause() : e;
-                        log.warn("Retry triggered: topic={} partition={} offset={} reason={} cause={}",
+                        log.warn("Skipping record: topic={} partition={} offset={} reason={} cause={}",
                                 record.topic(),
                                 record.partition(),
                                 record.offset(),
                                 e.getMessage(),
-                                cause.getMessage(),
-                                cause);
-                        break;
+                                cause.getMessage());
                     }
                 }
 
-                if (success) {
+                try {
                     ctx.batchFileWriter.flush(batchBuffer.toString());
-                    consumer.commitSync();
-                    for (LogEvent ev : telegramQueue) {
-                        sendTelegramAsync(ev);
-                    }
+                } catch (IOException e) {
+                    log.error("File flush failed, batch will retry: {}", e.getMessage(), e);
+                    continue;
+                }
+
+                consumer.commitSync();
+                for (LogEvent ev : telegramQueue) {
+                    sendTelegramAsync(ev);
                 }
             }
         } catch (WakeupException ignored) {
-        } catch (IOException e) {
-            log.error("Writer failure: {}", e.getMessage(), e);
         } finally {
             consumer.close();
         }

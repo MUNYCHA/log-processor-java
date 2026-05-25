@@ -84,12 +84,16 @@ public class LogRecordHandler implements RecordHandler {
     }
 
     private void saveAlert(LogEvent event) {
-        alertRepository.saveAlert(
-                event.getTopic(),
-                event.getTimestamp(),
-                event.getServerName(),
-                event.getPath(),
-                event.getMessage()
-        );
+        try {
+            alertRepository.saveAlert(
+                    event.getTopic(),
+                    event.getTimestamp(),
+                    event.getServerName(),
+                    event.getPath(),
+                    event.getMessage()
+            );
+        } catch (Exception e) {
+            log.error("Alert DB save failed: {}", e.getMessage(), e);
+        }
     }
 }
