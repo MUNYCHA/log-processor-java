@@ -20,19 +20,17 @@ import java.util.concurrent.ExecutorService;
 
 /**
  * Long-running Kafka poll loop for one topic. Delegates per-record work
- * to the {@link TopicContext}'s handler; collects up to
- * {@value #MAX_TELEGRAM_ALERTS_PER_BATCH} alert events per poll and
+ * to the {@link TopicContext}'s handler; collects alert events per poll and
  * dispatches them on the shared executor after the batch is committed.
  *
  * Records are buffered in memory, flushed to disk in one append per
  * poll cycle, and only then committed to Kafka. If the handler throws,
- * the entire batch is discarded and the same offsets are re-polled.
+ * the record is skipped with a warning and processing continues.
  */
 public class TopicPollLoop implements Runnable {
 
     private static final Logger log = LoggerFactory.getLogger(TopicPollLoop.class);
 
-    private static final int MAX_TELEGRAM_ALERTS_PER_BATCH = 5;
 
     private final TopicContext ctx;
     private final KafkaConsumer<String, String> consumer;
@@ -68,7 +66,7 @@ public class TopicPollLoop implements Runnable {
                 for (ConsumerRecord<String, String> record : records) {
                     try {
                         Optional<LogEvent> alertEvent = ctx.handler.handle(record, batchBuffer);
-                        if (alertEvent.isPresent() && telegramQueue.size() < MAX_TELEGRAM_ALERTS_PER_BATCH) {
+                        if (alertEvent.isPresent()) {
                             telegramQueue.add(alertEvent.get());
                         }
                     } catch (Exception e) {

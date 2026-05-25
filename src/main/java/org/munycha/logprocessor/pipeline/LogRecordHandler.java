@@ -64,18 +64,17 @@ public class LogRecordHandler implements RecordHandler {
                 return Optional.empty();
             }
 
+            saveAlert(event);
+
             if (patternStore != null) {
                 String pattern = normalizer.normalizeMessage(msg);
                 if (patternStore.isKnown(pattern)) {
-                    log.debug("Suppressed: pattern already known: {}", pattern);
+                    log.debug("Suppressed Telegram: pattern already known: {}", pattern);
                     return Optional.empty();
                 }
-                saveAlert(event);
                 patternStore.add(pattern);
-                return Optional.of(event);
             }
 
-            saveAlert(event);
             return Optional.of(event);
 
         } catch (Exception e) {

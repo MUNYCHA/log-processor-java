@@ -71,19 +71,19 @@ public class AlertPatternStore {
     public void add(String pattern) {
         synchronized (lock) {
             knownPatterns.add(pattern);
-        }
 
-        if (Files.exists(patternFile)) {
-            try (BufferedWriter writer = Files.newBufferedWriter(
-                    patternFile,
-                    StandardCharsets.UTF_8,
-                    StandardOpenOption.WRITE,
-                    StandardOpenOption.APPEND
-            )) {
-                writer.write(pattern);
-                writer.newLine();
-            } catch (IOException e) {
-                log.warn("Failed to persist pattern: {}", e.getMessage());
+            if (Files.exists(patternFile)) {
+                try (BufferedWriter writer = Files.newBufferedWriter(
+                        patternFile,
+                        StandardCharsets.UTF_8,
+                        StandardOpenOption.WRITE,
+                        StandardOpenOption.APPEND
+                )) {
+                    writer.write(pattern);
+                    writer.newLine();
+                } catch (IOException e) {
+                    log.warn("Failed to persist pattern: {}", e.getMessage());
+                }
             }
         }
 
